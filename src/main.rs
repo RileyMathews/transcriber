@@ -3,25 +3,29 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use hound::WavReader;
+use std::fs::File;
+use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let filename = args.get(1).map(|s| s.as_str()).expect("no file given");
     println!("opening {}", filename);
 
-    let mut reader = WavReader::open(filename).expect("Could not open file");
+    // Open the file and get its specs, but we'll re-open it for streaming
+    let reader = WavReader::open(filename).expect("Could not open file");
     let wave_spec = reader.spec();
+    let header_size = 44; // Standard WAV header size, may need adjustment for non-standard WAVs
 
-    // assume the sample rate and format of my
-    // testing wave file.
-    // this will likely break on other files
-    // will take care of that later
-    let samples: Vec<f32> = reader
-        .samples::<i16>()
-        .map(|s| s.unwrap_or(0) as f32 / i16::MAX as f32)
-        .collect();
+    // Create a structure to hold the streaming state that can be shared across threads
+    let file_reader = Arc::new(Mutex::new(StreamingState::new(
+        filename,
+        wave_spec.channels as usize,
+        header_size,
+    )));
 
-    let mut sample_position = 0;
+    let file_reader_clone = file_reader.clone();
 
     let host = cpal::default_host();
     let device = host
@@ -36,24 +40,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let channels_usize = config.channels as usize;
+    let sample_rate = wave_spec.sample_rate;
+
     let stream = device
         .build_output_stream(
             &config,
             move |output: &mut [i16], _: &cpal::OutputCallbackInfo| {
+                let mut reader_guard = file_reader_clone.lock().unwrap();
+
                 for frame in output.chunks_mut(channels_usize) {
-                    for (_ch, sample) in frame.iter_mut().enumerate() {
-                        if sample_position < samples.len() {
-                            let value = samples[sample_position];
-                            *sample = Sample::from_sample(value);
-                            sample_position += 1;
+                    if reader_guard.at_end {
+                        // Fill with silence if we've reached the end
+                        for sample in frame.iter_mut() {
+                            *sample = Sample::from_sample(0.0);
+                        }
+                    } else {
+                        // Read a frame of samples
+                        let samples = reader_guard.read_frame();
+
+                        for (i, sample) in frame.iter_mut().enumerate() {
+                            if i < samples.len() {
+                                *sample = samples[i];
+                            } else {
+                                *sample = Sample::from_sample(0.0);
+                            }
+                        }
+
+                        // Periodically report playback position
+                        reader_guard.sample_count += channels_usize;
+                        if reader_guard.sample_count % 10000 == 0 {
                             println!(
-                                "{}",
-                                sample_position as f32
-                                    / wave_spec.sample_rate as f32
-                                    / wave_spec.channels as f32
+                                "Position: {:.2} seconds",
+                                reader_guard.sample_count as f32
+                                    / sample_rate as f32
+                                    / channels_usize as f32
                             );
-                        } else {
-                            *sample = Sample::from_sample(0.0)
                         }
                     }
                 }
@@ -65,7 +86,68 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     stream.play()?;
 
-    loop {}
+    // Keep the main thread alive until playback completes
+    println!("Playing... Press Ctrl+C to stop");
+    loop {
+        std::thread::sleep(Duration::from_millis(500));
+
+        let reader_guard = file_reader.lock().unwrap();
+        if reader_guard.at_end {
+            println!("Playback complete");
+            break;
+        }
+    }
 
     Ok(())
 }
+
+// A custom struct to handle streaming directly from the file
+struct StreamingState {
+    file: BufReader<File>,
+    channels: usize,
+    sample_count: usize,
+    at_end: bool,
+    bytes_per_sample: usize,
+}
+
+impl StreamingState {
+    fn new(filename: &str, channels: usize, header_size: usize) -> Self {
+        let file = File::open(filename).expect("Could not open file");
+        let mut reader = BufReader::new(file);
+
+        // Skip the WAV header
+        reader
+            .seek(SeekFrom::Start(header_size as u64))
+            .expect("Could not seek past header");
+
+        StreamingState {
+            file: reader,
+            channels,
+            sample_count: 0,
+            at_end: false,
+            bytes_per_sample: 2, // For i16 samples
+        }
+    }
+
+    fn read_frame(&mut self) -> Vec<i16> {
+        let mut frame = vec![0i16; self.channels];
+        let mut buffer = vec![0u8; self.channels * self.bytes_per_sample];
+
+        match self.file.read_exact(&mut buffer) {
+            Ok(_) => {
+                // Convert bytes to i16 samples (little endian)
+                for i in 0..self.channels {
+                    let idx = i * self.bytes_per_sample;
+                    frame[i] = i16::from_le_bytes([buffer[idx], buffer[idx + 1]]);
+                }
+            }
+            Err(_) => {
+                // End of file or error
+                self.at_end = true;
+            }
+        }
+
+        frame
+    }
+}
+
