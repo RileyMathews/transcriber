@@ -1,5 +1,3 @@
-use std::{thread, time::Duration};
-
 use cpal::{
     Sample, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -48,6 +46,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let value = samples[sample_position];
                             *sample = Sample::from_sample(value);
                             sample_position += 1;
+                            println!(
+                                "{}",
+                                sample_position as f32
+                                    / wave_spec.sample_rate as f32
+                                    / wave_spec.channels as f32
+                            );
                         } else {
                             *sample = Sample::from_sample(0.0)
                         }
@@ -61,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     stream.play()?;
 
-    thread::sleep(Duration::from_secs(10));
+    loop {}
 
     Ok(())
 }
