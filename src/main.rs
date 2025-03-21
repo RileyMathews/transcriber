@@ -3,10 +3,10 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use hound::WavReader;
+use k_board::{keyboard::Keyboard, keys::Keys};
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         filename,
         wave_spec.channels as usize,
         header_size,
+        wave_spec.sample_rate as usize,
     )));
 
     let file_reader_clone = file_reader.clone();
@@ -40,7 +41,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let channels_usize = config.channels as usize;
-    let sample_rate = wave_spec.sample_rate;
 
     let stream = device
         .build_output_stream(
@@ -66,16 +66,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
 
-                        // Periodically report playback position
-                        reader_guard.sample_count += channels_usize;
-                        if reader_guard.sample_count % 10000 == 0 {
-                            println!(
-                                "Position: {:.2} seconds",
-                                reader_guard.sample_count as f32
-                                    / sample_rate as f32
-                                    / channels_usize as f32
-                            );
-                        }
+                        println!(
+                            "Position: {:.2} seconds: {}",
+                            reader_guard.get_current_time_seconds(),
+                            reader_guard.get_current_sample_location()
+                        );
                     }
                 }
             },
@@ -89,7 +84,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Keep the main thread alive until playback completes
     println!("Playing... Press Ctrl+C to stop");
     loop {
-        std::thread::sleep(Duration::from_millis(500));
+        //std::thread::sleep(Duration::from_millis(500));
+        // if j is pressed then seek backwards
+        let keyboard = Keyboard::new();
+        for key in keyboard {
+            match key {
+                Keys::Left => {
+                    let mut reader_guard = file_reader.lock().unwrap();
+                    reader_guard.seek_backwards(5);
+                }
+                _ => {}
+            }
+        }
 
         let reader_guard = file_reader.lock().unwrap();
         if reader_guard.at_end {
@@ -105,13 +111,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 struct StreamingState {
     file: BufReader<File>,
     channels: usize,
-    sample_count: usize,
     at_end: bool,
     bytes_per_sample: usize,
+    samples_per_second: usize,
 }
 
 impl StreamingState {
-    fn new(filename: &str, channels: usize, header_size: usize) -> Self {
+    fn new(filename: &str, channels: usize, header_size: usize, samples_per_second: usize) -> Self {
         let file = File::open(filename).expect("Could not open file");
         let mut reader = BufReader::new(file);
 
@@ -123,9 +129,9 @@ impl StreamingState {
         StreamingState {
             file: reader,
             channels,
-            sample_count: 0,
             at_end: false,
             bytes_per_sample: 2, // For i16 samples
+            samples_per_second,
         }
     }
 
@@ -149,5 +155,28 @@ impl StreamingState {
 
         frame
     }
-}
 
+    fn get_current_sample_location(&mut self) -> usize {
+        (self.file.stream_position().unwrap() / self.bytes_per_sample as u64) as usize
+    }
+
+    fn get_current_time_seconds(&mut self) -> f32 {
+        self.get_current_sample_location() as f32 / self.samples_per_second as f32
+    }
+
+    fn seek_backwards(&mut self, seconds: i16) {
+        let bytes_to_seek = self.samples_per_second * seconds as usize * self.channels as usize;
+
+        if self.file.stream_position().unwrap() < bytes_to_seek as u64 {
+            println!("Seeking to start of file");
+            self.file
+                .seek(SeekFrom::Start(44))
+                .expect("Could not seek to start");
+            return;
+        }
+
+        self.file
+            .seek(SeekFrom::Current(-(bytes_to_seek as i64)))
+            .expect("Could not seek backwards");
+    }
+}

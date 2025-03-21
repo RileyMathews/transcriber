@@ -280,6 +280,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "k_board"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9f15e3294c3797dc5058e8c00f2e79c72920102da4867b3f635e013512eb740"
+
+[[package]]
 name = "libc"
 version = "0.2.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -574,6 +580,7 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "hound",
+ "k_board",
 ]
 
 [[package]]
