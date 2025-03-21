@@ -53,7 +53,7 @@ pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> Stream {
                         }
 
                         println!(
-                            "Position: {:.2} seconds",
+                            "Position: {:.5} seconds",
                             reader_guard.get_current_time_seconds(),
                         );
                     }

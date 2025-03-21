@@ -64,16 +64,16 @@ impl AudioStream {
         frame
     }
 
-    fn get_current_sample_location(&mut self) -> usize {
-        (self.file.stream_position().unwrap() / self.bytes_per_sample as u64) as usize
+    fn get_current_sample_location(&mut self) -> f32 {
+        (self.file.stream_position().unwrap() / self.bytes_per_sample as u64) as f32
     }
 
     fn get_current_byte_location(&mut self) -> usize {
         self.file.stream_position().unwrap() as usize
     }
 
-    pub fn get_current_time_seconds(&mut self) -> usize {
-        self.get_current_sample_location() / self.sample_rate
+    pub fn get_current_time_seconds(&mut self) -> f32 {
+        (self.get_current_sample_location() / self.sample_rate as f32) as f32
     }
 
     pub fn seek_forwards(&mut self, seconds: usize) {
