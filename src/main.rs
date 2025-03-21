@@ -160,8 +160,8 @@ impl StreamingState {
         (self.file.stream_position().unwrap() / self.bytes_per_sample as u64) as usize
     }
 
-    fn get_current_time_seconds(&mut self) -> f32 {
-        self.get_current_sample_location() as f32 / self.samples_per_second as f32
+    fn get_current_time_seconds(&mut self) -> usize {
+        self.get_current_sample_location() / self.samples_per_second
     }
 
     fn seek_backwards(&mut self, seconds: i16) {
