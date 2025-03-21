@@ -93,6 +93,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let mut reader_guard = file_reader.lock().unwrap();
                     reader_guard.seek_backwards(5);
                 }
+                Keys::Right => {
+                    let mut reader_guard = file_reader.lock().unwrap();
+                    reader_guard.seek_forwards(5);
+                }
                 _ => {}
             }
         }
@@ -166,6 +170,13 @@ impl StreamingState {
 
     fn get_current_time_seconds(&mut self) -> usize {
         self.get_current_sample_location() / self.samples_per_second
+    }
+
+    fn seek_forwards(&mut self, seconds: usize) {
+        let bytes_to_seek = self.samples_per_second * seconds * self.channels;
+        self.file
+            .seek(SeekFrom::Current(bytes_to_seek as i64))
+            .expect("Could not seek forwards");
     }
 
     fn seek_backwards(&mut self, seconds: usize) {
