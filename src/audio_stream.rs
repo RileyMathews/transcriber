@@ -4,10 +4,11 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 
 pub struct AudioStream {
     file: BufReader<File>,
-    channels: usize,
+    pub channels: usize,
     pub at_end: bool,
     bytes_per_sample: usize,
-    sample_rate: usize,
+    pub sample_rate: usize,
+    paused: bool,
 }
 
 impl AudioStream {
@@ -29,12 +30,22 @@ impl AudioStream {
             at_end: false,
             bytes_per_sample: 2,
             sample_rate: wave_spec.sample_rate as usize,
+            paused: false,
         }
+    }
+
+    pub fn toggle_play(&mut self) {
+        self.paused = !self.paused;
     }
 
     pub fn read_frame(&mut self) -> Vec<i16> {
         let mut frame = vec![0i16; self.channels];
         let mut buffer = vec![0u8; self.channels * self.bytes_per_sample];
+
+        if self.paused {
+            println!("Paused");
+            return frame;
+        }
 
         match self.file.read_exact(&mut buffer) {
             Ok(_) => {
