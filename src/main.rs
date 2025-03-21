@@ -160,14 +160,18 @@ impl StreamingState {
         (self.file.stream_position().unwrap() / self.bytes_per_sample as u64) as usize
     }
 
+    fn get_current_byte_location(&mut self) -> usize {
+        self.file.stream_position().unwrap() as usize
+    }
+
     fn get_current_time_seconds(&mut self) -> usize {
         self.get_current_sample_location() / self.samples_per_second
     }
 
-    fn seek_backwards(&mut self, seconds: i16) {
-        let bytes_to_seek = self.samples_per_second * seconds as usize * self.channels as usize;
+    fn seek_backwards(&mut self, seconds: usize) {
+        let bytes_to_seek = self.samples_per_second * seconds * self.channels;
 
-        if self.file.stream_position().unwrap() < bytes_to_seek as u64 {
+        if self.get_current_byte_location() < bytes_to_seek {
             println!("Seeking to start of file");
             self.file
                 .seek(SeekFrom::Start(44))
