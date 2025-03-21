@@ -96,7 +96,7 @@ impl App {
     }
 
     fn handle_events(&mut self) -> io::Result<()> {
-        if !event::poll(Duration::from_secs(0)).unwrap() {
+        if !event::poll(Duration::from_millis(25)).unwrap() {
             return Ok(());
         }
         match event::read()? {
