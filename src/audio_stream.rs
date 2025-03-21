@@ -43,7 +43,6 @@ impl AudioStream {
         let mut buffer = vec![0u8; self.channels * self.bytes_per_sample];
 
         if self.paused {
-            println!("Paused");
             return frame;
         }
 
@@ -87,7 +86,6 @@ impl AudioStream {
         let bytes_to_seek = self.sample_rate * seconds * self.channels;
 
         if self.get_current_byte_location() < bytes_to_seek {
-            println!("Seeking to start of file");
             self.file
                 .seek(SeekFrom::Start(44))
                 .expect("Could not seek to start");

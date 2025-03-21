@@ -8,13 +8,11 @@ use std::sync::{Arc, Mutex};
 use crate::audio_stream::AudioStream;
 
 pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> Stream {
-    println!("Creating output stream");
     let host = cpal::default_host();
     let device = host
         .default_output_device()
         .ok_or("no output device available")
         .expect("could not obtain output device");
-    println!("Output device: {}", device.name().unwrap());
 
     let config = {
         let audio_stream_lock = audio_stream.lock().unwrap();
@@ -24,7 +22,6 @@ pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> Stream {
             buffer_size: cpal::BufferSize::Default,
         }
     };
-    println!("Stream config: {:?}", config);
 
     let channels_usize = config.channels as usize;
 
@@ -51,11 +48,6 @@ pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> Stream {
                                 *sample = Sample::from_sample(0.0);
                             }
                         }
-
-                        println!(
-                            "Position: {:.5} seconds",
-                            reader_guard.get_current_time_seconds(),
-                        );
                     }
                 }
             },

@@ -5,5 +5,7 @@ edition = "2024"
 
 [dependencies]
 cpal = "0.15.3"
+crossterm = "0.28.1"
 hound = "3.5.1"
 k_board = "1.3.1"
+ratatui = "0.29.0"
