@@ -116,6 +116,9 @@ impl App {
             KeyCode::Char('j') => self.stream.lock().unwrap().seek_backwards(5),
             KeyCode::Char('l') => self.stream.lock().unwrap().seek_forwards(5),
             KeyCode::Char('k') => self.stream.lock().unwrap().toggle_play(),
+            KeyCode::Char('u') => self.stream.lock().unwrap().set_loop_start(),
+            KeyCode::Char('o') => self.stream.lock().unwrap().set_loop_end(),
+            KeyCode::Char('i') => self.stream.lock().unwrap().toggle_loop(),
             _ => {}
         }
     }
@@ -129,27 +132,34 @@ impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Line::from(" Counter App Tutorial ".bold());
         let instructions = Line::from(vec![
-            " Decrement ".into(),
-            "<Left>".blue().bold(),
-            " Increment ".into(),
-            "<Right>".blue().bold(),
+            " Toggle Pause ".into(),
+            "<k>".blue().bold(),
+            " Seek Backwards ".into(),
+            "<j>".blue().bold(),
+            " Seek Forwards ".into(),
+            "<l>".blue().bold(),
+            " Set Loop Start ".into(),
+            "<u>".blue().bold(),
+            " Set Loop End ".into(),
+            "<o>".blue().bold(),
+            " Toggle Looping ".into(),
+            "<i>".blue().bold(),
             " Quit ".into(),
-            "<Q> ".blue().bold(),
+            "<q> ".blue().bold(),
         ]);
         let block = Block::bordered()
             .title(title.centered())
             .title_bottom(instructions.centered())
             .border_set(border::THICK);
 
-        let counter_text = Text::from(vec![Line::from(vec![
-            "Value: ".into(),
-            self.stream
-                .lock()
-                .unwrap()
-                .get_current_time_seconds()
-                .to_string()
-                .yellow(),
-        ])]);
+        let output_data = self.stream.lock().unwrap().output_data();
+
+        let counter_text = Text::from(vec![
+            Line::from(vec!["Value: ".into(), output_data.current_time.yellow()]),
+            Line::from(vec!["loop start: ".into(), output_data.loop_start.yellow()]),
+            Line::from(vec!["loop end: ".into(), output_data.loop_end.yellow()]),
+            Line::from(vec!["looping: ".into(), output_data.is_looping.yellow()]),
+        ]);
 
         Paragraph::new(counter_text)
             .centered()

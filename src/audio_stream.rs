@@ -2,6 +2,13 @@ use hound::WavReader;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 
+pub struct AudioStreamOutputData {
+    pub current_time: String,
+    pub loop_start: String,
+    pub loop_end: String,
+    pub is_looping: String,
+}
+
 pub struct AudioStream {
     file: BufReader<File>,
     pub channels: usize,
@@ -9,6 +16,9 @@ pub struct AudioStream {
     bytes_per_sample: usize,
     pub sample_rate: usize,
     paused: bool,
+    is_looping: bool,
+    loop_sample_start: f32,
+    loop_sample_end: f32,
 }
 
 impl AudioStream {
@@ -31,6 +41,23 @@ impl AudioStream {
             bytes_per_sample: 2,
             sample_rate: wave_spec.sample_rate as usize,
             paused: false,
+            is_looping: false,
+            loop_sample_start: 0.0,
+            loop_sample_end: 0.0,
+        }
+    }
+
+    pub fn output_data(&mut self) -> AudioStreamOutputData {
+        let current_time = self.get_current_time_seconds();
+        let loop_start = self.get_loop_start_seconds();
+        let loop_end = self.get_seconds_for_sample(self.loop_sample_end);
+        let is_looping = self.is_looping;
+
+        AudioStreamOutputData {
+            current_time: format!("{:.2}", current_time),
+            loop_start: format!("{:.2}", loop_start),
+            loop_end: format!("{:.2}", loop_end),
+            is_looping: format!("{}", is_looping),
         }
     }
 
@@ -41,6 +68,11 @@ impl AudioStream {
     pub fn read_frame(&mut self) -> Vec<i16> {
         let mut frame = vec![0i16; self.channels];
         let mut buffer = vec![0u8; self.channels * self.bytes_per_sample];
+
+        if self.is_looping && self.get_current_sample_location() > self.loop_sample_end {
+            self.seek_to_sample(self.loop_sample_start);
+            return frame;
+        }
 
         if self.paused {
             return frame;
@@ -71,8 +103,29 @@ impl AudioStream {
         self.file.stream_position().unwrap() as usize
     }
 
+    fn get_seconds_for_sample(&mut self, sample: f32) -> f32 {
+        (sample as f32 / self.sample_rate as f32) as f32
+    }
+
+    pub fn set_loop_start(&mut self) {
+        self.loop_sample_start = self.get_current_sample_location()
+    }
+
+    pub fn set_loop_end(&mut self) {
+        self.loop_sample_end = self.get_current_sample_location()
+    }
+
+    pub fn get_loop_start_seconds(&mut self) -> f32 {
+        self.get_seconds_for_sample(self.loop_sample_start)
+    }
+
+    pub fn toggle_loop(&mut self) {
+        self.is_looping = !self.is_looping;
+    }
+
     pub fn get_current_time_seconds(&mut self) -> f32 {
-        (self.get_current_sample_location() / self.sample_rate as f32) as f32
+        let current = self.get_current_sample_location();
+        self.get_seconds_for_sample(current)
     }
 
     pub fn seek_forwards(&mut self, seconds: usize) {
@@ -80,6 +133,13 @@ impl AudioStream {
         self.file
             .seek(SeekFrom::Current(bytes_to_seek as i64))
             .expect("Could not seek forwards");
+    }
+
+    pub fn seek_to_sample(&mut self, sample: f32) {
+        let byte_location = (sample * self.bytes_per_sample as f32) as u64;
+        self.file
+            .seek(SeekFrom::Start(byte_location))
+            .expect("Could not seek to sample");
     }
 
     pub fn seek_backwards(&mut self, seconds: usize) {
