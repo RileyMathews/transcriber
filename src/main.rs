@@ -141,6 +141,9 @@ impl App {
                 _ => {}
             },
             Mode::SetBookmark => match key_event.code {
+                KeyCode::Char('j') => self.stream.lock().unwrap().seek_backwards(5),
+                KeyCode::Char('l') => self.stream.lock().unwrap().seek_forwards(5),
+                KeyCode::Char('k') => self.stream.lock().unwrap().toggle_play(),
                 KeyCode::Char('1') => self.stream.lock().unwrap().set_bookmark(Digits::One),
                 KeyCode::Char('2') => self.stream.lock().unwrap().set_bookmark(Digits::Two),
                 KeyCode::Char('3') => self.stream.lock().unwrap().set_bookmark(Digits::Three),
