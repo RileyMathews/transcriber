@@ -1,11 +1,10 @@
 use cpal::traits::StreamTrait;
-use k_board::{keyboard::Keyboard, keys::Keys};
 use output::output_stream;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
@@ -17,7 +16,7 @@ use ratatui::{
 };
 mod audio_stream;
 mod output;
-use audio_stream::AudioStream;
+use audio_stream::{AudioStream, Digits};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -39,6 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_result = App {
         stream: audio_stream,
         exit: false,
+        mode: Mode::Normal,
     }
     .run(&mut terminal);
     ratatui::restore();
@@ -77,8 +77,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(app_result?)
 }
 
+enum Mode {
+    Normal,
+    SetBookmark,
+}
+
 pub struct App {
     stream: Arc<Mutex<AudioStream>>,
+    mode: Mode,
     exit: bool,
 }
 impl App {
@@ -111,15 +117,43 @@ impl App {
     }
 
     fn handle_key_event(&mut self, key_event: KeyEvent) {
-        match key_event.code {
-            KeyCode::Char('q') => self.exit(),
-            KeyCode::Char('j') => self.stream.lock().unwrap().seek_backwards(5),
-            KeyCode::Char('l') => self.stream.lock().unwrap().seek_forwards(5),
-            KeyCode::Char('k') => self.stream.lock().unwrap().toggle_play(),
-            KeyCode::Char('u') => self.stream.lock().unwrap().set_loop_start(),
-            KeyCode::Char('o') => self.stream.lock().unwrap().set_loop_end(),
-            KeyCode::Char('i') => self.stream.lock().unwrap().toggle_loop(),
-            _ => {}
+        match self.mode {
+            Mode::Normal => match key_event.code {
+                KeyCode::Char('q') => self.exit(),
+                KeyCode::Char('j') => self.stream.lock().unwrap().seek_backwards(5),
+                KeyCode::Char('l') => self.stream.lock().unwrap().seek_forwards(5),
+                KeyCode::Char('k') => self.stream.lock().unwrap().toggle_play(),
+                KeyCode::Char('u') => self.stream.lock().unwrap().set_loop_start(),
+                KeyCode::Char('o') => self.stream.lock().unwrap().set_loop_end(),
+                KeyCode::Char('i') => self.stream.lock().unwrap().toggle_loop(),
+                KeyCode::Char('1') => self.stream.lock().unwrap().seek_to_bookmark(Digits::One),
+                KeyCode::Char('2') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Two),
+                KeyCode::Char('3') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Three),
+                KeyCode::Char('4') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Four),
+                KeyCode::Char('5') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Five),
+                KeyCode::Char('6') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Six),
+                KeyCode::Char('7') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Seven),
+                KeyCode::Char('8') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Eight),
+                KeyCode::Char('9') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Nine),
+                KeyCode::Char('0') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Zero),
+                KeyCode::Char('w') => self.stream.lock().unwrap().set_bookmark(Digits::One),
+                KeyCode::Char('b') => self.mode = Mode::SetBookmark,
+                _ => {}
+            },
+            Mode::SetBookmark => match key_event.code {
+                KeyCode::Char('1') => self.stream.lock().unwrap().set_bookmark(Digits::One),
+                KeyCode::Char('2') => self.stream.lock().unwrap().set_bookmark(Digits::Two),
+                KeyCode::Char('3') => self.stream.lock().unwrap().set_bookmark(Digits::Three),
+                KeyCode::Char('4') => self.stream.lock().unwrap().set_bookmark(Digits::Four),
+                KeyCode::Char('5') => self.stream.lock().unwrap().set_bookmark(Digits::Five),
+                KeyCode::Char('6') => self.stream.lock().unwrap().set_bookmark(Digits::Six),
+                KeyCode::Char('7') => self.stream.lock().unwrap().set_bookmark(Digits::Seven),
+                KeyCode::Char('8') => self.stream.lock().unwrap().set_bookmark(Digits::Eight),
+                KeyCode::Char('9') => self.stream.lock().unwrap().set_bookmark(Digits::Nine),
+                KeyCode::Char('0') => self.stream.lock().unwrap().set_bookmark(Digits::Zero),
+                KeyCode::Char('b') => self.mode = Mode::Normal,
+                _ => {}
+            },
         }
     }
 
@@ -154,11 +188,37 @@ impl Widget for &App {
 
         let output_data = self.stream.lock().unwrap().output_data();
 
+        let mode_display = match self.mode {
+            Mode::Normal => "Normal",
+            Mode::SetBookmark => "Bookmark",
+        };
+
         let counter_text = Text::from(vec![
             Line::from(vec!["Value: ".into(), output_data.current_time.yellow()]),
             Line::from(vec!["loop start: ".into(), output_data.loop_start.yellow()]),
             Line::from(vec!["loop end: ".into(), output_data.loop_end.yellow()]),
             Line::from(vec!["looping: ".into(), output_data.is_looping.yellow()]),
+            Line::from(vec!["Mode: ".into(), mode_display.into()]),
+            Line::from(vec![
+                "Bookmarks: [1] ".into(),
+                output_data.bookmark_1.yellow(),
+                " [2] ".into(),
+                output_data.bookmark_2.yellow(),
+                " [3] ".into(),
+                output_data.bookmark_3.yellow(),
+                " [4] ".into(),
+                output_data.bookmark_4.yellow(),
+                " [5] ".into(),
+                output_data.bookmark_5.yellow(),
+                " [6] ".into(),
+                output_data.bookmark_6.yellow(),
+                " [7] ".into(),
+                output_data.bookmark_7.yellow(),
+                " [8] ".into(),
+                output_data.bookmark_8.yellow(),
+                " [9] ".into(),
+                output_data.bookmark_9.yellow(),
+            ]),
         ]);
 
         Paragraph::new(counter_text)

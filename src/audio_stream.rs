@@ -2,11 +2,34 @@ use hound::WavReader;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 
+pub enum Digits {
+    One,
+    Two,
+    Three,
+    Four,
+    Five,
+    Six,
+    Seven,
+    Eight,
+    Nine,
+    Zero,
+}
+
 pub struct AudioStreamOutputData {
     pub current_time: String,
     pub loop_start: String,
     pub loop_end: String,
     pub is_looping: String,
+    pub bookmark_1: String,
+    pub bookmark_2: String,
+    pub bookmark_3: String,
+    pub bookmark_4: String,
+    pub bookmark_5: String,
+    pub bookmark_6: String,
+    pub bookmark_7: String,
+    pub bookmark_8: String,
+    pub bookmark_9: String,
+    pub bookmark_0: String,
 }
 
 pub struct AudioStream {
@@ -19,6 +42,16 @@ pub struct AudioStream {
     is_looping: bool,
     loop_sample_start: f32,
     loop_sample_end: f32,
+    bookmark_1: f32,
+    bookmark_2: f32,
+    bookmark_3: f32,
+    bookmark_4: f32,
+    bookmark_5: f32,
+    bookmark_6: f32,
+    bookmark_7: f32,
+    bookmark_8: f32,
+    bookmark_9: f32,
+    bookmark_0: f32,
 }
 
 impl AudioStream {
@@ -44,6 +77,16 @@ impl AudioStream {
             is_looping: false,
             loop_sample_start: 0.0,
             loop_sample_end: 0.0,
+            bookmark_1: 0.0,
+            bookmark_2: 0.0,
+            bookmark_3: 0.0,
+            bookmark_4: 0.0,
+            bookmark_5: 0.0,
+            bookmark_6: 0.0,
+            bookmark_7: 0.0,
+            bookmark_8: 0.0,
+            bookmark_9: 0.0,
+            bookmark_0: 0.0,
         }
     }
 
@@ -58,7 +101,47 @@ impl AudioStream {
             loop_start: format!("{:.2}", loop_start),
             loop_end: format!("{:.2}", loop_end),
             is_looping: format!("{}", is_looping),
+            bookmark_1: format!("{:.2}", self.get_seconds_for_sample(self.bookmark_1)),
+            bookmark_2: format!("{:.2}", self.get_seconds_for_sample(self.bookmark_2)),
+            bookmark_3: format!("{:.2}", self.get_seconds_for_sample(self.bookmark_3)),
+            bookmark_4: format!("{:.2}", self.get_seconds_for_sample(self.bookmark_4)),
+            bookmark_5: format!("{:.2}", self.get_seconds_for_sample(self.bookmark_5)),
+            bookmark_6: format!("{:.2}", self.get_seconds_for_sample(self.bookmark_6)),
+            bookmark_7: format!("{:.2}", self.get_seconds_for_sample(self.bookmark_7)),
+            bookmark_8: format!("{:.2}", self.get_seconds_for_sample(self.bookmark_8)),
+            bookmark_9: format!("{:.2}", self.get_seconds_for_sample(self.bookmark_9)),
+            bookmark_0: format!("{:.2}", self.get_seconds_for_sample(self.bookmark_0)),
         }
+    }
+
+    pub fn set_bookmark(&mut self, bookmark: Digits) {
+        match bookmark {
+            Digits::One => self.bookmark_1 = self.get_current_sample_location(),
+            Digits::Two => self.bookmark_2 = self.get_current_sample_location(),
+            Digits::Three => self.bookmark_3 = self.get_current_sample_location(),
+            Digits::Four => self.bookmark_4 = self.get_current_sample_location(),
+            Digits::Five => self.bookmark_5 = self.get_current_sample_location(),
+            Digits::Six => self.bookmark_6 = self.get_current_sample_location(),
+            Digits::Seven => self.bookmark_7 = self.get_current_sample_location(),
+            Digits::Eight => self.bookmark_8 = self.get_current_sample_location(),
+            Digits::Nine => self.bookmark_9 = self.get_current_sample_location(),
+            Digits::Zero => self.bookmark_0 = self.get_current_sample_location(),
+        };
+    }
+
+    pub fn seek_to_bookmark(&mut self, bookmark: Digits) {
+        match bookmark {
+            Digits::One => self.seek_to_sample(self.bookmark_1),
+            Digits::Two => self.seek_to_sample(self.bookmark_2),
+            Digits::Three => self.seek_to_sample(self.bookmark_3),
+            Digits::Four => self.seek_to_sample(self.bookmark_4),
+            Digits::Five => self.seek_to_sample(self.bookmark_5),
+            Digits::Six => self.seek_to_sample(self.bookmark_6),
+            Digits::Seven => self.seek_to_sample(self.bookmark_7),
+            Digits::Eight => self.seek_to_sample(self.bookmark_8),
+            Digits::Nine => self.seek_to_sample(self.bookmark_9),
+            Digits::Zero => self.seek_to_sample(self.bookmark_0),
+        };
     }
 
     pub fn toggle_play(&mut self) {
