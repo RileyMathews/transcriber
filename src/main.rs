@@ -130,7 +130,7 @@ impl App {
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Line::from(" Transcriber ".bold());
-        let instructions = Line::from(vec![
+        let mut common_instructions = vec![
             " Toggle Pause ".into(),
             "<k>".blue().bold(),
             " Seek Backwards ".into(),
@@ -145,7 +145,31 @@ impl Widget for &App {
             "<i>".blue().bold(),
             " Quit ".into(),
             "<q> ".blue().bold(),
-        ]);
+        ];
+        let mut loop_instructions = vec![
+            " Set Loop Start ".into(),
+            "<u>".blue().bold(),
+            " Set Loop End ".into(),
+            "<o>".blue().bold(),
+            " Toggle Looping ".into(),
+            "<i>".blue().bold(),
+            " Jump to Bookmark ".into(),
+            "<0-9>".blue().bold(),
+            " Bookmark Mode ".into(),
+            "<b>".blue().bold(),
+        ];
+        let mut bookmark_instructions = vec![
+            " Set Bookmark ".into(),
+            "<0-9>".blue().bold(),
+            " Normal Mode ".into(),
+            "<b>".blue().bold(),
+        ];
+        match self.mode {
+            Mode::Normal => common_instructions.append(&mut loop_instructions),
+            Mode::SetBookmark => common_instructions.append(&mut bookmark_instructions),
+        };
+        let instructions = Line::from(common_instructions);
+
         let block = Block::bordered()
             .title(title.centered())
             .title_bottom(instructions.centered())
