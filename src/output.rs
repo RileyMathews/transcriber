@@ -1,6 +1,6 @@
 use cpal::Stream;
 use cpal::{
-    Sample, StreamConfig,
+    StreamConfig,
     traits::{DeviceTrait, HostTrait},
 };
 use std::sync::{Arc, Mutex};

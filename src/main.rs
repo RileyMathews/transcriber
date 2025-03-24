@@ -4,7 +4,7 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
@@ -21,16 +21,9 @@ use audio_stream::{AudioStream, Digits};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let filename = args.get(1).map(|s| s.as_str()).expect("no file given");
-    println!("opening {}", filename);
 
-    // Create a structure to hold the streaming state that can be shared across threads
     let audio_stream = Arc::new(Mutex::new(AudioStream::from_wave_file(filename)));
-
-    println!("Audio stream created");
-
     let stream = output_stream(audio_stream.clone());
-
-    println!("Output stream created");
 
     stream.play()?;
 
@@ -42,37 +35,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     .run(&mut terminal);
     ratatui::restore();
-
-    // Keep the main thread alive until playback completes
-    println!("Playing... Press Ctrl+C to stop");
-    //loop {
-    //    //std::thread::sleep(Duration::from_millis(500));
-    //    // if j is pressed then seek backwards
-    //    let keyboard = Keyboard::new();
-    //    for key in keyboard {
-    //        match key {
-    //            Keys::Left => {
-    //                let mut stream = audio_stream.lock().unwrap();
-    //                stream.seek_backwards(5);
-    //            }
-    //            Keys::Right => {
-    //                let mut stream = audio_stream.lock().unwrap();
-    //                stream.seek_forwards(5);
-    //            }
-    //            Keys::Up => {
-    //                let mut stream = audio_stream.lock().unwrap();
-    //                stream.toggle_play();
-    //            }
-    //            _ => {}
-    //        }
-    //    }
-    //
-    //    let reader_guard = audio_stream.lock().unwrap();
-    //    if reader_guard.at_end {
-    //        println!("Playback complete");
-    //        break;
-    //    }
-    //}
 
     Ok(app_result?)
 }
@@ -221,6 +183,8 @@ impl Widget for &App {
                 output_data.bookmark_8.yellow(),
                 " [9] ".into(),
                 output_data.bookmark_9.yellow(),
+                " [0] ".into(),
+                output_data.bookmark_0.yellow(),
             ]),
         ]);
 
