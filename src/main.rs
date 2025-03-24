@@ -130,7 +130,7 @@ impl App {
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Line::from(" Transcriber ".bold());
-        let mut common_instructions = vec![
+        let common_instructions = Line::from(vec![
             " Toggle Pause ".into(),
             "<k>".blue().bold(),
             " Seek Backwards ".into(),
@@ -145,8 +145,8 @@ impl Widget for &App {
             "<i>".blue().bold(),
             " Quit ".into(),
             "<q> ".blue().bold(),
-        ];
-        let mut loop_instructions = vec![
+        ]);
+        let loop_instructions = vec![
             " Set Loop Start ".into(),
             "<u>".blue().bold(),
             " Set Loop End ".into(),
@@ -158,58 +158,63 @@ impl Widget for &App {
             " Bookmark Mode ".into(),
             "<b>".blue().bold(),
         ];
-        let mut bookmark_instructions = vec![
+        let bookmark_instructions = vec![
             " Set Bookmark ".into(),
             "<0-9>".blue().bold(),
             " Normal Mode ".into(),
             "<b>".blue().bold(),
         ];
-        match self.mode {
-            Mode::Normal => common_instructions.append(&mut loop_instructions),
-            Mode::SetBookmark => common_instructions.append(&mut bookmark_instructions),
+        let mode_instructions = match self.mode {
+            Mode::Normal => Line::from(loop_instructions),
+            Mode::SetBookmark => Line::from(bookmark_instructions),
         };
-        let instructions = Line::from(common_instructions);
 
         let block = Block::bordered()
             .title(title.centered())
-            .title_bottom(instructions.centered())
             .border_set(border::THICK);
 
         let output_data = self.stream.lock().unwrap().output_data();
 
         let mode_display = match self.mode {
-            Mode::Normal => "Normal",
-            Mode::SetBookmark => "Bookmark",
+            Mode::Normal => "Normal".red(),
+            Mode::SetBookmark => "Bookmark".red(),
         };
 
         let counter_text = Text::from(vec![
-            Line::from(vec!["Value: ".into(), output_data.current_time.yellow()]),
-            Line::from(vec!["loop start: ".into(), output_data.loop_start.yellow()]),
-            Line::from(vec!["loop end: ".into(), output_data.loop_end.yellow()]),
-            Line::from(vec!["looping: ".into(), output_data.is_looping.yellow()]),
+            Line::from(vec!["Position: ".into(), output_data.current_time.red()]),
+            Line::from(vec![
+                "loop start: ".into(),
+                output_data.loop_start.red(),
+                " end: ".into(),
+                output_data.loop_end.red(),
+                " active: ".into(),
+                output_data.is_looping.red(),
+            ]),
             Line::from(vec!["Mode: ".into(), mode_display.into()]),
             Line::from(vec![
                 "Bookmarks: [1] ".into(),
-                output_data.bookmark_1.yellow(),
+                output_data.bookmark_1.red(),
                 " [2] ".into(),
-                output_data.bookmark_2.yellow(),
+                output_data.bookmark_2.red(),
                 " [3] ".into(),
-                output_data.bookmark_3.yellow(),
+                output_data.bookmark_3.red(),
                 " [4] ".into(),
-                output_data.bookmark_4.yellow(),
+                output_data.bookmark_4.red(),
                 " [5] ".into(),
-                output_data.bookmark_5.yellow(),
+                output_data.bookmark_5.red(),
                 " [6] ".into(),
-                output_data.bookmark_6.yellow(),
+                output_data.bookmark_6.red(),
                 " [7] ".into(),
-                output_data.bookmark_7.yellow(),
+                output_data.bookmark_7.red(),
                 " [8] ".into(),
-                output_data.bookmark_8.yellow(),
+                output_data.bookmark_8.red(),
                 " [9] ".into(),
-                output_data.bookmark_9.yellow(),
+                output_data.bookmark_9.red(),
                 " [0] ".into(),
-                output_data.bookmark_0.yellow(),
+                output_data.bookmark_0.red(),
             ]),
+            common_instructions,
+            mode_instructions,
         ]);
 
         Paragraph::new(counter_text)
