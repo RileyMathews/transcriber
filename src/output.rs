@@ -32,22 +32,10 @@ pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> Stream {
                 let mut reader_guard = audio_stream.lock().unwrap();
 
                 for frame in output.chunks_mut(channels_usize) {
-                    if reader_guard.at_end {
-                        // Fill with silence if we've reached the end
-                        for sample in frame.iter_mut() {
-                            *sample = Sample::from_sample(0.0);
-                        }
-                    } else {
-                        // Read a frame of samples
-                        let samples = reader_guard.read_frame();
+                    let samples = reader_guard.read_frame();
 
-                        for (i, sample) in frame.iter_mut().enumerate() {
-                            if i < samples.len() {
-                                *sample = samples[i];
-                            } else {
-                                *sample = Sample::from_sample(0.0);
-                            }
-                        }
+                    for (i, sample) in frame.iter_mut().enumerate() {
+                        *sample = samples[i];
                     }
                 }
             },

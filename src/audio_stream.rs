@@ -35,7 +35,6 @@ pub struct AudioStreamOutputData {
 pub struct AudioStream {
     file: BufReader<File>,
     pub channels: usize,
-    pub at_end: bool,
     bytes_per_sample: usize,
     pub sample_rate: usize,
     paused: bool,
@@ -70,7 +69,6 @@ impl AudioStream {
         AudioStream {
             file: reader,
             channels: wave_spec.channels as usize,
-            at_end: false,
             bytes_per_sample: 2,
             sample_rate: wave_spec.sample_rate as usize,
             paused: false,
@@ -171,7 +169,7 @@ impl AudioStream {
             }
             Err(_) => {
                 // End of file or error
-                self.at_end = true;
+                self.paused = true;
             }
         }
 
