@@ -167,7 +167,7 @@ impl App {
 
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = Line::from(" Counter App Tutorial ".bold());
+        let title = Line::from(" Transcriber ".bold());
         let instructions = Line::from(vec![
             " Toggle Pause ".into(),
             "<k>".blue().bold(),
