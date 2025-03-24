@@ -3,6 +3,13 @@ An audio playback application meant to aid in music practice and transcription.
 
 The idea is to have a simple app that focuses on playback features to support fine grain listening controls for a single track. Features like playlists and more generic 'audio player' features will likely not be added.
 
+# Installation
+I plan to eventually try to add this package to the AUR. But for now installation via source is required. A simple clone and `cargo install --path .` should get the binary installed.
+
+# Usage
+
+`transcriber /path/to/wave/file.wav`
+
 ## Features
 * Create loop section
 * Create and jump to bookmarks within a track
