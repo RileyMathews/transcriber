@@ -1,7 +1,7 @@
 # Transcriber
 An audio playback application meant to aid in music practice and transcription.
 
-(./docs/example.png)
+![example screenshot of application](./docs/example.png)
 
 The idea is to have a simple app that focuses on playback features to support fine grain listening controls for a single track. Features like playlists and more generic 'audio player' features will likely not be added.
 
