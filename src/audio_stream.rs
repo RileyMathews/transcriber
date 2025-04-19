@@ -27,6 +27,7 @@ pub struct AudioStreamOutputData {
     pub loop_start: String,
     pub loop_end: String,
     pub is_looping: String,
+    pub current_speed: String,
     pub bookmark_1: String,
     pub bookmark_2: String,
     pub bookmark_3: String,
@@ -100,6 +101,17 @@ impl Bookmarks {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SpeedVersion {
+    pub speed: f32,
+    pub file_path: PathBuf,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SpeedVersions {
+    versions: Vec<SpeedVersion>,
+}
+
 pub struct AudioStream {
     file: BufReader<File>,
     pub channels: usize,
@@ -111,6 +123,8 @@ pub struct AudioStream {
     loop_sample_end: f32,
     bookmarks: Bookmarks,
     song_data: SongData,
+    current_speed: f32,
+    speed_versions: Vec<SpeedVersion>,
 }
 
 impl AudioStream {
@@ -128,6 +142,9 @@ impl AudioStream {
 
         let song_data = SongData::from_wave_file(file_path);
         let bookmarks = Self::load_bookmarks(&song_data.song_dir);
+        
+        // Load speed versions
+        let speed_versions = Self::load_speed_versions(&song_data.song_dir, file_path);
 
         AudioStream {
             file: reader,
@@ -140,6 +157,8 @@ impl AudioStream {
             loop_sample_end: 0.0,
             bookmarks,
             song_data,
+            current_speed: 1.0,
+            speed_versions,
         }
     }
 
@@ -159,6 +178,40 @@ impl AudioStream {
         fs::write(bookmarks_path, bookmarks_str).expect("Could not write bookmarks");
     }
 
+    fn load_speed_versions(song_dir: &PathBuf, original_file_path: &str) -> Vec<SpeedVersion> {
+        let speed_versions_path = song_dir.join("speed_versions.json");
+        
+        // Start with the original file as the 1.0x speed version
+        let mut versions = vec![SpeedVersion {
+            speed: 1.0,
+            file_path: PathBuf::from(original_file_path),
+        }];
+
+        // Try to load additional versions from the JSON file
+        if speed_versions_path.exists() {
+            if let Ok(speed_versions_str) = fs::read_to_string(&speed_versions_path) {
+                if let Ok(loaded_versions) = serde_json::from_str::<SpeedVersions>(&speed_versions_str) {
+                    // Only add versions that still exist on disk
+                    versions.extend(loaded_versions.versions.into_iter().filter(|v| v.file_path.exists()));
+                }
+            }
+        }
+
+        versions
+    }
+
+    fn save_speed_versions(&self) {
+        let speed_versions_path = self.song_data.song_dir.join("speed_versions.json");
+        let speed_versions = SpeedVersions {
+            versions: self.speed_versions.iter()
+                .filter(|v| v.speed != 1.0) // Don't save the original file
+                .cloned()
+                .collect(),
+        };
+        let speed_versions_str = serde_json::to_string_pretty(&speed_versions).unwrap();
+        fs::write(speed_versions_path, speed_versions_str).expect("Could not write speed versions");
+    }
+
     pub fn output_data(&mut self) -> AudioStreamOutputData {
         let current_time = self.get_current_time_seconds();
         let loop_start = self.get_loop_start_seconds();
@@ -170,6 +223,7 @@ impl AudioStream {
             loop_start: format!("{:.2}", loop_start),
             loop_end: format!("{:.2}", loop_end),
             is_looping: format!("{}", is_looping),
+            current_speed: format!("{:.2}x", self.current_speed),
             bookmark_1: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::One))),
             bookmark_2: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Two))),
             bookmark_3: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Three))),
@@ -229,15 +283,15 @@ impl AudioStream {
     }
 
     fn get_current_sample_location(&mut self) -> f32 {
-        (self.file.stream_position().unwrap() / self.bytes_per_sample as u64) as f32
+        ((self.file.stream_position().unwrap() - 44) / self.bytes_per_sample as u64) as f32
     }
 
     fn get_current_byte_location(&mut self) -> usize {
-        self.file.stream_position().unwrap() as usize
+        (self.file.stream_position().unwrap() - 44) as usize
     }
 
     fn get_seconds_for_sample(&mut self, sample: f32) -> f32 {
-        (sample as f32 / self.sample_rate as f32) as f32
+        (sample as f32 / self.sample_rate as f32) as f32 / self.current_speed
     }
 
     pub fn set_loop_start(&mut self) {
@@ -262,23 +316,23 @@ impl AudioStream {
     }
 
     pub fn seek_forwards(&mut self, seconds: usize) {
-        let bytes_to_seek = self.sample_rate * seconds * self.channels;
+        let bytes_to_seek = (self.sample_rate * seconds * self.channels) as f32 * self.current_speed;
         self.file
             .seek(SeekFrom::Current(bytes_to_seek as i64))
             .expect("Could not seek forwards");
     }
 
     pub fn seek_to_sample(&mut self, sample: f32) {
-        let byte_location = (sample * self.bytes_per_sample as f32) as u64;
+        let byte_position = (sample * self.bytes_per_sample as f32) as u64 + 44; // Add header size
         self.file
-            .seek(SeekFrom::Start(byte_location))
+            .seek(SeekFrom::Start(byte_position))
             .expect("Could not seek to sample");
     }
 
     pub fn seek_backwards(&mut self, seconds: usize) {
-        let bytes_to_seek = self.sample_rate * seconds * self.channels;
+        let bytes_to_seek = (self.sample_rate * seconds * self.channels) as f32 * self.current_speed;
 
-        if self.get_current_byte_location() < bytes_to_seek {
+        if self.get_current_byte_location() < bytes_to_seek as usize {
             self.file
                 .seek(SeekFrom::Start(44))
                 .expect("Could not seek to start");
@@ -288,5 +342,169 @@ impl AudioStream {
         self.file
             .seek(SeekFrom::Current(-(bytes_to_seek as i64)))
             .expect("Could not seek backwards");
+    }
+
+    pub fn set_speed(&mut self, speed: f32) -> Result<(), String> {
+        // Pause playback before switching
+        let was_playing = !self.paused;
+        self.paused = true;
+
+        // Get the current time position before switching
+        let current_time = self.get_current_time_seconds();
+        
+        // Calculate the target sample position, ensuring it's frame-aligned
+        let new_sample = (current_time * self.sample_rate as f32 * speed) as f32;
+        let frame_size = self.channels * self.bytes_per_sample;
+        let aligned_sample = (new_sample as usize / frame_size) * frame_size;
+        
+        // Check if we already have this speed version
+        if let Some(version) = self.speed_versions.iter().find(|v| v.speed == speed) {
+            self.current_speed = speed;
+            
+            // Open the new file and get its metadata
+            let file = File::open(&version.file_path).expect("Could not open speed version file");
+            let file_size = file.metadata().expect("Could not get file metadata").len();
+            
+            // Create a new reader
+            let mut reader = BufReader::new(file);
+            
+            // Seek past the WAV header
+            reader.seek(SeekFrom::Start(44)).expect("Could not seek past header");
+            
+            // Calculate the byte position, ensuring it's frame-aligned
+            let byte_position = (aligned_sample as u64 * self.bytes_per_sample as u64) + 44;
+            
+            // Verify the position is valid
+            if byte_position >= file_size {
+                return Err("Invalid position after speed change".to_string());
+            }
+            
+            // Seek to the aligned position
+            reader.seek(SeekFrom::Start(byte_position)).expect("Could not seek to position");
+            
+            // Read and discard a few frames to ensure clean buffer state
+            let mut buffer = vec![0u8; frame_size * 4];
+            reader.read_exact(&mut buffer).ok();
+            
+            self.file = reader;
+            
+            // Restore playback state
+            self.paused = !was_playing;
+            return Ok(());
+        }
+
+        // If not, we need to create it
+        let output_path = self.song_data.song_dir.join(format!("speed_{:.2}.wav", speed));
+        
+        // Call rubberband to create the new speed version
+        let status = std::process::Command::new("rubberband")
+            .arg("-t")
+            .arg(format!("{:.2}", speed))
+            .arg(&self.speed_versions[0].file_path)
+            .arg(&output_path)
+            .status()
+            .map_err(|e| format!("Failed to run rubberband: {}", e))?;
+
+        if !status.success() {
+            return Err("rubberband failed to process the file".to_string());
+        }
+
+        // Add the new speed version
+        self.speed_versions.push(SpeedVersion {
+            speed,
+            file_path: output_path.clone(),
+        });
+
+        // Save the updated speed versions
+        self.save_speed_versions();
+
+        // Switch to the new speed version
+        self.current_speed = speed;
+        
+        // Open the new file and get its metadata
+        let file = File::open(&output_path).expect("Could not open speed version file");
+        let file_size = file.metadata().expect("Could not get file metadata").len();
+        
+        // Create a new reader
+        let mut reader = BufReader::new(file);
+        
+        // Seek past the WAV header
+        reader.seek(SeekFrom::Start(44)).expect("Could not seek past header");
+        
+        // Calculate the byte position, ensuring it's frame-aligned
+        let byte_position = (aligned_sample as u64 * self.bytes_per_sample as u64) + 44;
+        
+        // Verify the position is valid
+        if byte_position >= file_size {
+            return Err("Invalid position after speed change".to_string());
+        }
+        
+        // Seek to the aligned position
+        reader.seek(SeekFrom::Start(byte_position)).expect("Could not seek to position");
+        
+        // Read and discard a few frames to ensure clean buffer state
+        let mut buffer = vec![0u8; frame_size * 4];
+        reader.read_exact(&mut buffer).ok();
+        
+        self.file = reader;
+        
+        // Restore playback state
+        self.paused = !was_playing;
+
+        Ok(())
+    }
+
+    pub fn reset_speed(&mut self) -> Result<(), String> {
+        // Get the current speed and time
+        let current_speed = self.current_speed;
+        let current_time = self.get_current_time_seconds();
+        
+        // Pause playback
+        let was_playing = !self.paused;
+        self.paused = true;
+        
+        // Find the current speed version
+        if let Some(version) = self.speed_versions.iter().find(|v| v.speed == current_speed) {
+            // Open the file and get its metadata
+            let file = File::open(&version.file_path).expect("Could not open speed version file");
+            let file_size = file.metadata().expect("Could not get file metadata").len();
+            
+            // Create a new reader
+            let mut reader = BufReader::new(file);
+            
+            // Seek past the WAV header
+            reader.seek(SeekFrom::Start(44)).expect("Could not seek past header");
+            
+            // Calculate the target sample position, ensuring it's frame-aligned
+            let new_sample = (current_time * self.sample_rate as f32 * current_speed) as f32;
+            let frame_size = self.channels * self.bytes_per_sample;
+            let aligned_sample = (new_sample as usize / frame_size) * frame_size;
+            
+            // Calculate the byte position, ensuring it's frame-aligned
+            let byte_position = (aligned_sample as u64 * self.bytes_per_sample as u64) + 44;
+            
+            // Verify the position is valid
+            if byte_position >= file_size {
+                return Err("Invalid position after speed reset".to_string());
+            }
+            
+            // Seek to the aligned position
+            reader.seek(SeekFrom::Start(byte_position)).expect("Could not seek to position");
+            
+            // Read and discard a few frames to ensure clean buffer state
+            let mut buffer = vec![0u8; frame_size * 4];
+            reader.read_exact(&mut buffer).ok();
+            
+            self.file = reader;
+            
+            // Restore playback state
+            self.paused = !was_playing;
+        }
+        
+        Ok(())
+    }
+
+    pub fn get_current_speed(&self) -> f32 {
+        self.current_speed
     }
 }

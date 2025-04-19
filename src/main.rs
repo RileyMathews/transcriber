@@ -44,6 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 enum Mode {
     Normal,
     SetBookmark,
+    SetSpeed,
 }
 
 pub struct App {
@@ -67,17 +68,13 @@ impl App {
     }
 
     fn handle_events(&mut self) -> io::Result<()> {
-        if !event::poll(Duration::from_millis(25)).unwrap() {
-            return Ok(());
-        }
-        match event::read()? {
-            // it's important to check that the event is a key press event as
-            // crossterm also emits key release and repeat events on Windows.
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)
+        if event::poll(Duration::from_millis(50))? {
+            if let Event::Key(key_event) = event::read()? {
+                if key_event.kind == KeyEventKind::Press {
+                    self.handle_key_event(key_event);
+                }
             }
-            _ => {}
-        };
+        }
         Ok(())
     }
 
@@ -85,9 +82,9 @@ impl App {
         match self.mode {
             Mode::Normal => match key_event.code {
                 KeyCode::Char('q') => self.exit(),
+                KeyCode::Char('k') => self.stream.lock().unwrap().toggle_play(),
                 KeyCode::Char('j') => self.stream.lock().unwrap().seek_backwards(5),
                 KeyCode::Char('l') => self.stream.lock().unwrap().seek_forwards(5),
-                KeyCode::Char('k') => self.stream.lock().unwrap().toggle_play(),
                 KeyCode::Char('u') => self.stream.lock().unwrap().set_loop_start(),
                 KeyCode::Char('o') => self.stream.lock().unwrap().set_loop_end(),
                 KeyCode::Char('i') => self.stream.lock().unwrap().toggle_loop(),
@@ -103,6 +100,7 @@ impl App {
                 KeyCode::Char('0') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Zero),
                 KeyCode::Char('w') => self.stream.lock().unwrap().set_bookmark(Digits::One),
                 KeyCode::Char('b') => self.mode = Mode::SetBookmark,
+                KeyCode::Char('s') => self.mode = Mode::SetSpeed,
                 _ => {}
             },
             Mode::SetBookmark => match key_event.code {
@@ -120,6 +118,45 @@ impl App {
                 KeyCode::Char('9') => self.stream.lock().unwrap().set_bookmark(Digits::Nine),
                 KeyCode::Char('0') => self.stream.lock().unwrap().set_bookmark(Digits::Zero),
                 KeyCode::Char('b') => self.mode = Mode::Normal,
+                _ => {}
+            },
+            Mode::SetSpeed => match key_event.code {
+                KeyCode::Char('1') => {
+                    if let Err(e) = self.stream.lock().unwrap().set_speed(2.0) {
+                        eprintln!("Error setting speed: {}", e);
+                    }
+                    self.mode = Mode::Normal;
+                }
+                KeyCode::Char('2') => {
+                    if let Err(e) = self.stream.lock().unwrap().set_speed(1.33) {
+                        eprintln!("Error setting speed: {}", e);
+                    }
+                    self.mode = Mode::Normal;
+                }
+                KeyCode::Char('3') => {
+                    if let Err(e) = self.stream.lock().unwrap().set_speed(1.0) {
+                        eprintln!("Error setting speed: {}", e);
+                    }
+                    self.mode = Mode::Normal;
+                }
+                KeyCode::Char('4') => {
+                    if let Err(e) = self.stream.lock().unwrap().set_speed(0.8) {
+                        eprintln!("Error setting speed: {}", e);
+                    }
+                    self.mode = Mode::Normal;
+                }
+                KeyCode::Char('5') => {
+                    if let Err(e) = self.stream.lock().unwrap().set_speed(0.67) {
+                        eprintln!("Error setting speed: {}", e);
+                    }
+                    self.mode = Mode::Normal;
+                }
+                KeyCode::Char('r') => {
+                    if let Err(e) = self.stream.lock().unwrap().reset_speed() {
+                        eprintln!("Error resetting speed: {}", e);
+                    }
+                }
+                KeyCode::Char('s') => self.mode = Mode::Normal,
                 _ => {}
             },
         }
@@ -160,6 +197,8 @@ impl Widget for &App {
             "<0-9>".blue().bold(),
             " Bookmark Mode ".into(),
             "<b>".blue().bold(),
+            " Speed Mode ".into(),
+            "<s>".blue().bold(),
         ];
         let bookmark_instructions = vec![
             " Set Bookmark ".into(),
@@ -167,9 +206,27 @@ impl Widget for &App {
             " Normal Mode ".into(),
             "<b>".blue().bold(),
         ];
+        let speed_instructions = vec![
+            " Set Speed ".into(),
+            "<1>".blue().bold(),
+            " 0.5x ".into(),
+            "<2>".blue().bold(),
+            " 0.75x ".into(),
+            "<3>".blue().bold(),
+            " 1.0x ".into(),
+            "<4>".blue().bold(),
+            " 1.25x ".into(),
+            "<5>".blue().bold(),
+            " 1.5x ".into(),
+            " Reset ".into(),
+            "<r>".blue().bold(),
+            " Normal Mode ".into(),
+            "<s>".blue().bold(),
+        ];
         let mode_instructions = match self.mode {
             Mode::Normal => Line::from(loop_instructions),
             Mode::SetBookmark => Line::from(bookmark_instructions),
+            Mode::SetSpeed => Line::from(speed_instructions),
         };
 
         let block = Block::bordered()
@@ -181,10 +238,12 @@ impl Widget for &App {
         let mode_display = match self.mode {
             Mode::Normal => "Normal".red(),
             Mode::SetBookmark => "Bookmark".red(),
+            Mode::SetSpeed => "Speed".red(),
         };
 
         let counter_text = Text::from(vec![
             Line::from(vec!["Position: ".into(), output_data.current_time.red()]),
+            Line::from(vec!["Speed: ".into(), output_data.current_speed.red()]),
             Line::from(vec![
                 "loop start: ".into(),
                 output_data.loop_start.red(),
