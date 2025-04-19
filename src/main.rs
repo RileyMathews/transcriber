@@ -24,9 +24,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let filename = args.get(1).map(|s| s.as_str()).expect("no file given");
 
-    // Create song data for the file
-    let _song_data = SongData::from_wave_file(filename);
-
     let audio_stream = Arc::new(Mutex::new(AudioStream::from_wave_file(filename)));
     let stream = output_stream(audio_stream.clone());
 
@@ -54,6 +51,7 @@ pub struct App {
     mode: Mode,
     exit: bool,
 }
+
 impl App {
     /// runs the application's main loop until the user quits
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {

@@ -5,6 +5,9 @@ use std::path::PathBuf;
 use blake3::Hasher;
 use std::fs;
 use dirs;
+use serde::{Serialize, Deserialize};
+use crate::save_data::SongData;
+use serde_json;
 
 pub enum Digits {
     One,
@@ -36,6 +39,7 @@ pub struct AudioStreamOutputData {
     pub bookmark_0: String,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Bookmarks {
     bookmark_1: f32,
     bookmark_2: f32,
@@ -106,6 +110,7 @@ pub struct AudioStream {
     loop_sample_start: f32,
     loop_sample_end: f32,
     bookmarks: Bookmarks,
+    song_data: SongData,
 }
 
 impl AudioStream {
@@ -121,6 +126,9 @@ impl AudioStream {
             .seek(SeekFrom::Start(wave_header_size as u64))
             .expect("Could not seek past header");
 
+        let song_data = SongData::from_wave_file(file_path);
+        let bookmarks = Self::load_bookmarks(&song_data.song_dir);
+
         AudioStream {
             file: reader,
             channels: wave_spec.channels as usize,
@@ -130,8 +138,25 @@ impl AudioStream {
             is_looping: false,
             loop_sample_start: 0.0,
             loop_sample_end: 0.0,
-            bookmarks: Bookmarks::new(),
+            bookmarks,
+            song_data,
         }
+    }
+
+    fn load_bookmarks(song_dir: &PathBuf) -> Bookmarks {
+        let bookmarks_path = song_dir.join("bookmarks.json");
+        if bookmarks_path.exists() {
+            let bookmarks_str = fs::read_to_string(&bookmarks_path).unwrap_or_default();
+            serde_json::from_str(&bookmarks_str).unwrap_or_else(|_| Bookmarks::new())
+        } else {
+            Bookmarks::new()
+        }
+    }
+
+    fn save_bookmarks(&self) {
+        let bookmarks_path = self.song_data.song_dir.join("bookmarks.json");
+        let bookmarks_str = serde_json::to_string_pretty(&self.bookmarks).unwrap();
+        fs::write(bookmarks_path, bookmarks_str).expect("Could not write bookmarks");
     }
 
     pub fn output_data(&mut self) -> AudioStreamOutputData {
@@ -161,6 +186,7 @@ impl AudioStream {
     pub fn set_bookmark(&mut self, bookmark: Digits) {
         let sample = self.get_current_sample_location();
         self.bookmarks.set_bookmark(bookmark, sample);
+        self.save_bookmarks();
     }
 
     pub fn seek_to_bookmark(&mut self, bookmark: Digits) {
