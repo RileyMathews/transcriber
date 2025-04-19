@@ -413,7 +413,7 @@ impl AudioStream {
         let output_path = self.song_data.song_dir.join(format!("speed_{:.2}.wav", speed));
         
         // Call rubberband to create the new speed version
-        let status = std::process::Command::new("rubberband")
+        let status = std::process::Command::new("rubberband-r3")
             .arg("-t")
             .arg(format!("{:.2}", speed))
             .arg(&self.speed_versions[0].file_path)
