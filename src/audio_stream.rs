@@ -365,6 +365,39 @@ impl AudioStream {
             .expect("Could not seek backwards");
     }
 
+    pub fn process_speed_version(&mut self, speed: f32) -> Result<(), String> {
+        // Check if we already have this speed version
+        if self.speed_versions.iter().any(|v| v.speed == speed) {
+            return Ok(());
+        }
+
+        let output_path = self.song_data.song_dir.join(format!("speed_{:.2}.wav", speed));
+        
+        // Call rubberband to create the new speed version
+        let status = std::process::Command::new("rubberband-r3")
+            .arg("-t")
+            .arg(format!("{:.2}", speed))
+            .arg(&self.speed_versions[0].file_path)
+            .arg(&output_path)
+            .status()
+            .map_err(|e| format!("Failed to run rubberband: {}", e))?;
+
+        if !status.success() {
+            return Err("rubberband failed to process the file".to_string());
+        }
+
+        // Add the new speed version
+        self.speed_versions.push(SpeedVersion {
+            speed,
+            file_path: output_path.clone(),
+        });
+
+        // Save the updated speed versions
+        self.save_speed_versions();
+
+        Ok(())
+    }
+
     pub fn set_speed(&mut self, speed: f32) -> Result<(), String> {
         // Pause playback before switching
         let was_playing = !self.paused;
@@ -373,7 +406,7 @@ impl AudioStream {
         // Get the current time position before switching
         let current_time = self.get_current_time_seconds();
         
-        // Check if we already have this speed version
+        // Check if we have this speed version
         if let Some(version) = self.speed_versions.iter().find(|v| v.speed == speed) {
             self.current_speed = speed;
             
@@ -409,65 +442,7 @@ impl AudioStream {
             return Ok(());
         }
 
-        // If not, we need to create it
-        let output_path = self.song_data.song_dir.join(format!("speed_{:.2}.wav", speed));
-        
-        // Call rubberband to create the new speed version
-        let status = std::process::Command::new("rubberband-r3")
-            .arg("-t")
-            .arg(format!("{:.2}", speed))
-            .arg(&self.speed_versions[0].file_path)
-            .arg(&output_path)
-            .status()
-            .map_err(|e| format!("Failed to run rubberband: {}", e))?;
-
-        if !status.success() {
-            return Err("rubberband failed to process the file".to_string());
-        }
-
-        // Add the new speed version
-        self.speed_versions.push(SpeedVersion {
-            speed,
-            file_path: output_path.clone(),
-        });
-
-        // Save the updated speed versions
-        self.save_speed_versions();
-
-        // Switch to the new speed version
-        self.current_speed = speed;
-        
-        // Open the new file and get its metadata
-        let file = File::open(&output_path).expect("Could not open speed version file");
-        let file_size = file.metadata().expect("Could not get file metadata").len();
-        
-        // Create a new reader
-        let mut reader = BufReader::new(file);
-        
-        // Seek past the WAV header
-        reader.seek(SeekFrom::Start(44)).expect("Could not seek past header");
-        
-        // Calculate the new position
-        let (byte_position, _) = self.calculate_position_for_time(current_time, speed);
-        
-        // Verify the position is valid
-        if byte_position >= file_size {
-            return Err("Invalid position after speed change".to_string());
-        }
-        
-        // Seek to the aligned position
-        reader.seek(SeekFrom::Start(byte_position)).expect("Could not seek to position");
-        
-        // Read and discard a few frames to ensure clean buffer state
-        let mut buffer = vec![0u8; self.channels * self.bytes_per_sample * 4];
-        reader.read_exact(&mut buffer).ok();
-        
-        self.file = reader;
-        
-        // Restore playback state
-        self.paused = !was_playing;
-
-        Ok(())
+        Err("Speed version not available. Please process it first in Process Speed mode.".to_string())
     }
 
     pub fn reset_speed(&mut self) -> Result<(), String> {
@@ -517,5 +492,12 @@ impl AudioStream {
 
     pub fn get_current_speed(&self) -> f32 {
         self.current_speed
+    }
+
+    pub fn get_available_speeds(&self) -> Vec<String> {
+        self.speed_versions
+            .iter()
+            .map(|v| format!("{:.2}x", v.speed))
+            .collect()
     }
 }
