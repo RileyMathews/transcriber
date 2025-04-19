@@ -212,6 +212,22 @@ impl AudioStream {
         fs::write(speed_versions_path, speed_versions_str).expect("Could not write speed versions");
     }
 
+    fn calculate_position_for_time(&self, time: f32, speed: f32) -> (u64, usize) {
+        // Calculate the target sample position, ensuring it's frame-aligned
+        let new_sample = (time * self.sample_rate as f32 * speed) as f32;
+        let frame_size = self.channels * self.bytes_per_sample;
+        let aligned_sample = (new_sample as usize / frame_size) * frame_size;
+        
+        // Calculate the byte position, ensuring it's frame-aligned
+        let byte_position = (aligned_sample as u64 * self.bytes_per_sample as u64) + 44;
+        
+        (byte_position, aligned_sample)
+    }
+
+    fn get_seconds_for_sample_original(&self, sample: f32) -> f32 {
+        (sample as f32 / self.sample_rate as f32) as f32
+    }
+
     pub fn output_data(&mut self) -> AudioStreamOutputData {
         let current_time = self.get_current_time_seconds();
         let loop_start = self.get_loop_start_seconds();
@@ -224,16 +240,16 @@ impl AudioStream {
             loop_end: format!("{:.2}", loop_end),
             is_looping: format!("{}", is_looping),
             current_speed: format!("{:.2}x", self.current_speed),
-            bookmark_1: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::One))),
-            bookmark_2: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Two))),
-            bookmark_3: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Three))),
-            bookmark_4: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Four))),
-            bookmark_5: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Five))),
-            bookmark_6: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Six))),
-            bookmark_7: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Seven))),
-            bookmark_8: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Eight))),
-            bookmark_9: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Nine))),
-            bookmark_0: format!("{:.2}", self.get_seconds_for_sample(self.bookmarks.get_bookmark(Digits::Zero))),
+            bookmark_1: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::One))),
+            bookmark_2: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Two))),
+            bookmark_3: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Three))),
+            bookmark_4: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Four))),
+            bookmark_5: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Five))),
+            bookmark_6: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Six))),
+            bookmark_7: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Seven))),
+            bookmark_8: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Eight))),
+            bookmark_9: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Nine))),
+            bookmark_0: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Zero))),
         }
     }
 
@@ -244,8 +260,13 @@ impl AudioStream {
     }
 
     pub fn seek_to_bookmark(&mut self, bookmark: Digits) {
-        let bookmark_value = self.bookmarks.get_bookmark(bookmark);
-        self.seek_to_sample(bookmark_value);
+        let bookmark_sample = self.bookmarks.get_bookmark(bookmark);
+        let bookmark_time = self.get_seconds_for_sample_original(bookmark_sample);
+        let (byte_position, _) = self.calculate_position_for_time(bookmark_time, self.current_speed);
+        
+        self.file
+            .seek(SeekFrom::Start(byte_position))
+            .expect("Could not seek to bookmark");
     }
 
     pub fn toggle_play(&mut self) {
@@ -352,11 +373,6 @@ impl AudioStream {
         // Get the current time position before switching
         let current_time = self.get_current_time_seconds();
         
-        // Calculate the target sample position, ensuring it's frame-aligned
-        let new_sample = (current_time * self.sample_rate as f32 * speed) as f32;
-        let frame_size = self.channels * self.bytes_per_sample;
-        let aligned_sample = (new_sample as usize / frame_size) * frame_size;
-        
         // Check if we already have this speed version
         if let Some(version) = self.speed_versions.iter().find(|v| v.speed == speed) {
             self.current_speed = speed;
@@ -371,8 +387,8 @@ impl AudioStream {
             // Seek past the WAV header
             reader.seek(SeekFrom::Start(44)).expect("Could not seek past header");
             
-            // Calculate the byte position, ensuring it's frame-aligned
-            let byte_position = (aligned_sample as u64 * self.bytes_per_sample as u64) + 44;
+            // Calculate the new position
+            let (byte_position, _) = self.calculate_position_for_time(current_time, speed);
             
             // Verify the position is valid
             if byte_position >= file_size {
@@ -383,7 +399,7 @@ impl AudioStream {
             reader.seek(SeekFrom::Start(byte_position)).expect("Could not seek to position");
             
             // Read and discard a few frames to ensure clean buffer state
-            let mut buffer = vec![0u8; frame_size * 4];
+            let mut buffer = vec![0u8; self.channels * self.bytes_per_sample * 4];
             reader.read_exact(&mut buffer).ok();
             
             self.file = reader;
@@ -431,8 +447,8 @@ impl AudioStream {
         // Seek past the WAV header
         reader.seek(SeekFrom::Start(44)).expect("Could not seek past header");
         
-        // Calculate the byte position, ensuring it's frame-aligned
-        let byte_position = (aligned_sample as u64 * self.bytes_per_sample as u64) + 44;
+        // Calculate the new position
+        let (byte_position, _) = self.calculate_position_for_time(current_time, speed);
         
         // Verify the position is valid
         if byte_position >= file_size {
@@ -443,7 +459,7 @@ impl AudioStream {
         reader.seek(SeekFrom::Start(byte_position)).expect("Could not seek to position");
         
         // Read and discard a few frames to ensure clean buffer state
-        let mut buffer = vec![0u8; frame_size * 4];
+        let mut buffer = vec![0u8; self.channels * self.bytes_per_sample * 4];
         reader.read_exact(&mut buffer).ok();
         
         self.file = reader;
@@ -475,13 +491,8 @@ impl AudioStream {
             // Seek past the WAV header
             reader.seek(SeekFrom::Start(44)).expect("Could not seek past header");
             
-            // Calculate the target sample position, ensuring it's frame-aligned
-            let new_sample = (current_time * self.sample_rate as f32 * current_speed) as f32;
-            let frame_size = self.channels * self.bytes_per_sample;
-            let aligned_sample = (new_sample as usize / frame_size) * frame_size;
-            
-            // Calculate the byte position, ensuring it's frame-aligned
-            let byte_position = (aligned_sample as u64 * self.bytes_per_sample as u64) + 44;
+            // Calculate the new position
+            let (byte_position, _) = self.calculate_position_for_time(current_time, current_speed);
             
             // Verify the position is valid
             if byte_position >= file_size {
@@ -492,7 +503,7 @@ impl AudioStream {
             reader.seek(SeekFrom::Start(byte_position)).expect("Could not seek to position");
             
             // Read and discard a few frames to ensure clean buffer state
-            let mut buffer = vec![0u8; frame_size * 4];
+            let mut buffer = vec![0u8; self.channels * self.bytes_per_sample * 4];
             reader.read_exact(&mut buffer).ok();
             
             self.file = reader;
