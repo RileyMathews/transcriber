@@ -30,6 +30,13 @@ struct Cli {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
+    let filename = match args.file_path {
+        Some(path) => path,
+        None => {
+            eprintln!("Please provide a file path.");
+            return Ok(());
+        }
+    };
 
     match args.process_speed {
         None => (),
@@ -38,14 +45,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
     }
-
-    let filename = match args.file_path {
-        Some(path) => path,
-        None => {
-            eprintln!("Please provide a file path.");
-            return Ok(());
-        }
-    };
 
     let audio_stream = Arc::new(Mutex::new(AudioStream::from_wave_file(&filename)));
     let stream = output_stream(audio_stream.clone());
