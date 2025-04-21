@@ -1,13 +1,13 @@
+use crate::save_data::SongData;
+use blake3::Hasher;
+use dirs;
 use hound::WavReader;
+use serde::{Deserialize, Serialize};
+use serde_json;
+use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::PathBuf;
-use blake3::Hasher;
-use std::fs;
-use dirs;
-use serde::{Serialize, Deserialize};
-use crate::save_data::SongData;
-use serde_json;
 
 pub enum Digits {
     One,
@@ -142,7 +142,7 @@ impl AudioStream {
 
         let song_data = SongData::from_wave_file(file_path);
         let bookmarks = Self::load_bookmarks(&song_data.song_dir);
-        
+
         // Load speed versions
         let speed_versions = Self::load_speed_versions(&song_data.song_dir, file_path);
 
@@ -180,7 +180,7 @@ impl AudioStream {
 
     fn load_speed_versions(song_dir: &PathBuf, original_file_path: &str) -> Vec<SpeedVersion> {
         let speed_versions_path = song_dir.join("speed_versions.json");
-        
+
         // Start with the original file as the 1.0x speed version
         let mut versions = vec![SpeedVersion {
             speed: 1.0,
@@ -190,9 +190,16 @@ impl AudioStream {
         // Try to load additional versions from the JSON file
         if speed_versions_path.exists() {
             if let Ok(speed_versions_str) = fs::read_to_string(&speed_versions_path) {
-                if let Ok(loaded_versions) = serde_json::from_str::<SpeedVersions>(&speed_versions_str) {
+                if let Ok(loaded_versions) =
+                    serde_json::from_str::<SpeedVersions>(&speed_versions_str)
+                {
                     // Only add versions that still exist on disk
-                    versions.extend(loaded_versions.versions.into_iter().filter(|v| v.file_path.exists()));
+                    versions.extend(
+                        loaded_versions
+                            .versions
+                            .into_iter()
+                            .filter(|v| v.file_path.exists()),
+                    );
                 }
             }
         }
@@ -203,7 +210,9 @@ impl AudioStream {
     fn save_speed_versions(&self) {
         let speed_versions_path = self.song_data.song_dir.join("speed_versions.json");
         let speed_versions = SpeedVersions {
-            versions: self.speed_versions.iter()
+            versions: self
+                .speed_versions
+                .iter()
                 .filter(|v| v.speed != 1.0) // Don't save the original file
                 .cloned()
                 .collect(),
@@ -217,10 +226,10 @@ impl AudioStream {
         let new_sample = (time * self.sample_rate as f32 * speed) as f32;
         let frame_size = self.channels * self.bytes_per_sample;
         let aligned_sample = (new_sample as usize / frame_size) * frame_size;
-        
+
         // Calculate the byte position, ensuring it's frame-aligned
         let byte_position = (aligned_sample as u64 * self.bytes_per_sample as u64) + 44;
-        
+
         (byte_position, aligned_sample)
     }
 
@@ -240,16 +249,46 @@ impl AudioStream {
             loop_end: format!("{:.2}", loop_end),
             is_looping: format!("{}", is_looping),
             current_speed: format!("{:.2}x", self.current_speed),
-            bookmark_1: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::One))),
-            bookmark_2: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Two))),
-            bookmark_3: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Three))),
-            bookmark_4: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Four))),
-            bookmark_5: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Five))),
-            bookmark_6: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Six))),
-            bookmark_7: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Seven))),
-            bookmark_8: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Eight))),
-            bookmark_9: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Nine))),
-            bookmark_0: format!("{:.2}", self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Zero))),
+            bookmark_1: format!(
+                "{:.2}",
+                self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::One))
+            ),
+            bookmark_2: format!(
+                "{:.2}",
+                self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Two))
+            ),
+            bookmark_3: format!(
+                "{:.2}",
+                self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Three))
+            ),
+            bookmark_4: format!(
+                "{:.2}",
+                self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Four))
+            ),
+            bookmark_5: format!(
+                "{:.2}",
+                self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Five))
+            ),
+            bookmark_6: format!(
+                "{:.2}",
+                self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Six))
+            ),
+            bookmark_7: format!(
+                "{:.2}",
+                self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Seven))
+            ),
+            bookmark_8: format!(
+                "{:.2}",
+                self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Eight))
+            ),
+            bookmark_9: format!(
+                "{:.2}",
+                self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Nine))
+            ),
+            bookmark_0: format!(
+                "{:.2}",
+                self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::Zero))
+            ),
         }
     }
 
@@ -262,8 +301,9 @@ impl AudioStream {
     pub fn seek_to_bookmark(&mut self, bookmark: Digits) {
         let bookmark_sample = self.bookmarks.get_bookmark(bookmark);
         let bookmark_time = self.get_seconds_for_sample_original(bookmark_sample);
-        let (byte_position, _) = self.calculate_position_for_time(bookmark_time, self.current_speed);
-        
+        let (byte_position, _) =
+            self.calculate_position_for_time(bookmark_time, self.current_speed);
+
         self.file
             .seek(SeekFrom::Start(byte_position))
             .expect("Could not seek to bookmark");
@@ -337,7 +377,8 @@ impl AudioStream {
     }
 
     pub fn seek_forwards(&mut self, seconds: usize) {
-        let bytes_to_seek = (self.sample_rate * seconds * self.channels) as f32 * self.current_speed;
+        let bytes_to_seek =
+            (self.sample_rate * seconds * self.channels) as f32 * self.current_speed;
         self.file
             .seek(SeekFrom::Current(bytes_to_seek as i64))
             .expect("Could not seek forwards");
@@ -351,7 +392,8 @@ impl AudioStream {
     }
 
     pub fn seek_backwards(&mut self, seconds: usize) {
-        let bytes_to_seek = (self.sample_rate * seconds * self.channels) as f32 * self.current_speed;
+        let bytes_to_seek =
+            (self.sample_rate * seconds * self.channels) as f32 * self.current_speed;
 
         if self.get_current_byte_location() < bytes_to_seek as usize {
             self.file
@@ -371,8 +413,11 @@ impl AudioStream {
             return Ok(());
         }
 
-        let output_path = self.song_data.song_dir.join(format!("speed_{:.2}.wav", speed));
-        
+        let output_path = self
+            .song_data
+            .song_dir
+            .join(format!("speed_{:.2}.wav", speed));
+
         // Call rubberband to create the new speed version
         let status = std::process::Command::new("rubberband-r3")
             .arg("-t")
@@ -405,88 +450,103 @@ impl AudioStream {
 
         // Get the current time position before switching
         let current_time = self.get_current_time_seconds();
-        
+
         // Check if we have this speed version
         if let Some(version) = self.speed_versions.iter().find(|v| v.speed == speed) {
             self.current_speed = speed;
-            
+
             // Open the new file and get its metadata
             let file = File::open(&version.file_path).expect("Could not open speed version file");
             let file_size = file.metadata().expect("Could not get file metadata").len();
-            
+
             // Create a new reader
             let mut reader = BufReader::new(file);
-            
+
             // Seek past the WAV header
-            reader.seek(SeekFrom::Start(44)).expect("Could not seek past header");
-            
+            reader
+                .seek(SeekFrom::Start(44))
+                .expect("Could not seek past header");
+
             // Calculate the new position
             let (byte_position, _) = self.calculate_position_for_time(current_time, speed);
-            
+
             // Verify the position is valid
             if byte_position >= file_size {
                 return Err("Invalid position after speed change".to_string());
             }
-            
+
             // Seek to the aligned position
-            reader.seek(SeekFrom::Start(byte_position)).expect("Could not seek to position");
-            
+            reader
+                .seek(SeekFrom::Start(byte_position))
+                .expect("Could not seek to position");
+
             // Read and discard a few frames to ensure clean buffer state
             let mut buffer = vec![0u8; self.channels * self.bytes_per_sample * 4];
             reader.read_exact(&mut buffer).ok();
-            
+
             self.file = reader;
-            
+
             // Restore playback state
             self.paused = !was_playing;
             return Ok(());
         }
 
-        Err("Speed version not available. Please process it first in Process Speed mode.".to_string())
+        Err(
+            "Speed version not available. Please process it first in Process Speed mode."
+                .to_string(),
+        )
     }
 
     pub fn reset_speed(&mut self) -> Result<(), String> {
         // Get the current speed and time
         let current_speed = self.current_speed;
         let current_time = self.get_current_time_seconds();
-        
+
         // Pause playback
         let was_playing = !self.paused;
         self.paused = true;
-        
+
         // Find the current speed version
-        if let Some(version) = self.speed_versions.iter().find(|v| v.speed == current_speed) {
+        if let Some(version) = self
+            .speed_versions
+            .iter()
+            .find(|v| v.speed == current_speed)
+        {
             // Open the file and get its metadata
             let file = File::open(&version.file_path).expect("Could not open speed version file");
             let file_size = file.metadata().expect("Could not get file metadata").len();
-            
+
             // Create a new reader
             let mut reader = BufReader::new(file);
-            
+
             // Seek past the WAV header
-            reader.seek(SeekFrom::Start(44)).expect("Could not seek past header");
-            
+            reader
+                .seek(SeekFrom::Start(44))
+                .expect("Could not seek past header");
+
             // Calculate the new position
             let (byte_position, _) = self.calculate_position_for_time(current_time, current_speed);
-            
+
             // Verify the position is valid
             if byte_position >= file_size {
                 return Err("Invalid position after speed reset".to_string());
             }
-            
+
             // Seek to the aligned position
-            reader.seek(SeekFrom::Start(byte_position)).expect("Could not seek to position");
-            
+            reader
+                .seek(SeekFrom::Start(byte_position))
+                .expect("Could not seek to position");
+
             // Read and discard a few frames to ensure clean buffer state
             let mut buffer = vec![0u8; self.channels * self.bytes_per_sample * 4];
             reader.read_exact(&mut buffer).ok();
-            
+
             self.file = reader;
-            
+
             // Restore playback state
             self.paused = !was_playing;
         }
-        
+
         Ok(())
     }
 
