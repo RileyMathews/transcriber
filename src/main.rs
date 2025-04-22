@@ -1,5 +1,6 @@
 use cpal::traits::StreamTrait;
 use output::output_stream;
+use save_data::SongData;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -16,6 +17,7 @@ use ratatui::{
 };
 mod audio_stream;
 mod output;
+mod process_time_warp;
 mod save_data;
 use audio_stream::{AudioStream, Digits};
 use clap::Parser;
@@ -38,10 +40,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let song_data = SongData::from_wave_file(&filename);
+
     match args.process_speed {
         None => (),
         Some(speed) => {
             println!("Processing speed version: {}", speed);
+            let result = process_time_warp::process(song_data, speed);
+            match result {
+                Ok(()) => println!("Done!"),
+                Err(message) => {
+                    eprintln!("Error processing speed version: {}", message);
+                }
+            }
             return Ok(());
         }
     }
@@ -67,7 +78,6 @@ enum Mode {
     Normal,
     SetBookmark,
     SetSpeed,
-    ProcessSpeed,
 }
 
 pub struct App {
@@ -124,7 +134,6 @@ impl App {
                 KeyCode::Char('w') => self.stream.lock().unwrap().set_bookmark(Digits::One),
                 KeyCode::Char('b') => self.mode = Mode::SetBookmark,
                 KeyCode::Char('s') => self.mode = Mode::SetSpeed,
-                KeyCode::Char('p') => self.mode = Mode::ProcessSpeed,
                 _ => {}
             },
             Mode::SetBookmark => match key_event.code {
@@ -189,40 +198,6 @@ impl App {
                 KeyCode::Char('s') => self.mode = Mode::Normal,
                 _ => {}
             },
-            Mode::ProcessSpeed => match key_event.code {
-                KeyCode::Char('1') => {
-                    if let Err(e) = self.stream.lock().unwrap().process_speed_version(1.1) {
-                        eprintln!("Error processing speed version: {}", e);
-                    }
-                }
-                KeyCode::Char('2') => {
-                    if let Err(e) = self.stream.lock().unwrap().process_speed_version(1.2) {
-                        eprintln!("Error processing speed version: {}", e);
-                    }
-                }
-                KeyCode::Char('3') => {
-                    if let Err(e) = self.stream.lock().unwrap().process_speed_version(1.3) {
-                        eprintln!("Error processing speed version: {}", e);
-                    }
-                }
-                KeyCode::Char('4') => {
-                    if let Err(e) = self.stream.lock().unwrap().process_speed_version(1.4) {
-                        eprintln!("Error processing speed version: {}", e);
-                    }
-                }
-                KeyCode::Char('5') => {
-                    if let Err(e) = self.stream.lock().unwrap().process_speed_version(1.5) {
-                        eprintln!("Error processing speed version: {}", e);
-                    }
-                }
-                KeyCode::Char('0') => {
-                    if let Err(e) = self.stream.lock().unwrap().process_speed_version(1.0) {
-                        eprintln!("Error processing speed version: {}", e);
-                    }
-                }
-                KeyCode::Char('p') => self.mode = Mode::Normal,
-                _ => {}
-            },
         }
     }
 
@@ -273,15 +248,15 @@ impl Widget for &App {
         let speed_instructions = vec![
             " Set Speed ".into(),
             "<1>".blue().bold(),
-            " 0.9x ".into(),
+            " 1.1x ".into(),
             "<2>".blue().bold(),
-            " 0.8x ".into(),
+            " 1.2x ".into(),
             "<3>".blue().bold(),
-            " 0.7x ".into(),
+            " 1.3x ".into(),
             "<4>".blue().bold(),
-            " 0.8x ".into(),
+            " 1.4x ".into(),
             "<5>".blue().bold(),
-            " 0.6x ".into(),
+            " 1.5x ".into(),
             "<0>".blue().bold(),
             " 1x ".into(),
             " Reset ".into(),
@@ -289,28 +264,10 @@ impl Widget for &App {
             " Normal Mode ".into(),
             "<s>".blue().bold(),
         ];
-        let process_speed_instructions = vec![
-            " Process Speed Version ".into(),
-            "<1>".blue().bold(),
-            " 0.9x ".into(),
-            "<2>".blue().bold(),
-            " 0.8x ".into(),
-            "<3>".blue().bold(),
-            " 0.7x ".into(),
-            "<4>".blue().bold(),
-            " 0.6x ".into(),
-            "<5>".blue().bold(),
-            " 0.5x ".into(),
-            "<0>".blue().bold(),
-            " 1x ".into(),
-            " Normal Mode ".into(),
-            "<p>".blue().bold(),
-        ];
         let mode_instructions = match self.mode {
             Mode::Normal => Line::from(loop_instructions),
             Mode::SetBookmark => Line::from(bookmark_instructions),
             Mode::SetSpeed => Line::from(speed_instructions),
-            Mode::ProcessSpeed => Line::from(process_speed_instructions),
         };
 
         let block = Block::bordered()
@@ -324,7 +281,6 @@ impl Widget for &App {
             Mode::Normal => "Normal".red(),
             Mode::SetBookmark => "Bookmark".red(),
             Mode::SetSpeed => "Speed".red(),
-            Mode::ProcessSpeed => "Process Speed".red(),
         };
 
         let counter_text = Text::from(vec![

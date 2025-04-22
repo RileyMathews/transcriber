@@ -101,17 +101,6 @@ impl Bookmarks {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct SpeedVersion {
-    pub speed: f32,
-    pub file_path: PathBuf,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SpeedVersions {
-    versions: Vec<SpeedVersion>,
-}
-
 pub struct AudioStream {
     file: BufReader<File>,
     pub channels: usize,
@@ -124,7 +113,6 @@ pub struct AudioStream {
     bookmarks: Bookmarks,
     song_data: SongData,
     current_speed: f32,
-    speed_versions: Vec<SpeedVersion>,
 }
 
 impl AudioStream {
@@ -143,9 +131,6 @@ impl AudioStream {
         let song_data = SongData::from_wave_file(file_path);
         let bookmarks = Self::load_bookmarks(&song_data.song_dir);
 
-        // Load speed versions
-        let speed_versions = Self::load_speed_versions(&song_data.song_dir, file_path);
-
         AudioStream {
             file: reader,
             channels: wave_spec.channels as usize,
@@ -158,7 +143,6 @@ impl AudioStream {
             bookmarks,
             song_data,
             current_speed: 1.0,
-            speed_versions,
         }
     }
 
@@ -176,49 +160,6 @@ impl AudioStream {
         let bookmarks_path = self.song_data.song_dir.join("bookmarks.json");
         let bookmarks_str = serde_json::to_string_pretty(&self.bookmarks).unwrap();
         fs::write(bookmarks_path, bookmarks_str).expect("Could not write bookmarks");
-    }
-
-    fn load_speed_versions(song_dir: &PathBuf, original_file_path: &str) -> Vec<SpeedVersion> {
-        let speed_versions_path = song_dir.join("speed_versions.json");
-
-        // Start with the original file as the 1.0x speed version
-        let mut versions = vec![SpeedVersion {
-            speed: 1.0,
-            file_path: PathBuf::from(original_file_path),
-        }];
-
-        // Try to load additional versions from the JSON file
-        if speed_versions_path.exists() {
-            if let Ok(speed_versions_str) = fs::read_to_string(&speed_versions_path) {
-                if let Ok(loaded_versions) =
-                    serde_json::from_str::<SpeedVersions>(&speed_versions_str)
-                {
-                    // Only add versions that still exist on disk
-                    versions.extend(
-                        loaded_versions
-                            .versions
-                            .into_iter()
-                            .filter(|v| v.file_path.exists()),
-                    );
-                }
-            }
-        }
-
-        versions
-    }
-
-    fn save_speed_versions(&self) {
-        let speed_versions_path = self.song_data.song_dir.join("speed_versions.json");
-        let speed_versions = SpeedVersions {
-            versions: self
-                .speed_versions
-                .iter()
-                .filter(|v| v.speed != 1.0) // Don't save the original file
-                .cloned()
-                .collect(),
-        };
-        let speed_versions_str = serde_json::to_string_pretty(&speed_versions).unwrap();
-        fs::write(speed_versions_path, speed_versions_str).expect("Could not write speed versions");
     }
 
     fn calculate_position_for_time(&self, time: f32, speed: f32) -> (u64, usize) {
@@ -407,42 +348,6 @@ impl AudioStream {
             .expect("Could not seek backwards");
     }
 
-    pub fn process_speed_version(&mut self, speed: f32) -> Result<(), String> {
-        // Check if we already have this speed version
-        if self.speed_versions.iter().any(|v| v.speed == speed) {
-            return Ok(());
-        }
-
-        let output_path = self
-            .song_data
-            .song_dir
-            .join(format!("speed_{:.2}.wav", speed));
-
-        // Call rubberband to create the new speed version
-        let status = std::process::Command::new("rubberband-r3")
-            .arg("-t")
-            .arg(format!("{:.2}", speed))
-            .arg(&self.speed_versions[0].file_path)
-            .arg(&output_path)
-            .status()
-            .map_err(|e| format!("Failed to run rubberband: {}", e))?;
-
-        if !status.success() {
-            return Err("rubberband failed to process the file".to_string());
-        }
-
-        // Add the new speed version
-        self.speed_versions.push(SpeedVersion {
-            speed,
-            file_path: output_path.clone(),
-        });
-
-        // Save the updated speed versions
-        self.save_speed_versions();
-
-        Ok(())
-    }
-
     pub fn set_speed(&mut self, speed: f32) -> Result<(), String> {
         // Pause playback before switching
         let was_playing = !self.paused;
@@ -452,7 +357,12 @@ impl AudioStream {
         let current_time = self.get_current_time_seconds();
 
         // Check if we have this speed version
-        if let Some(version) = self.speed_versions.iter().find(|v| v.speed == speed) {
+        if let Some(version) = self
+            .song_data
+            .speed_versions
+            .iter()
+            .find(|v| v.speed == speed)
+        {
             self.current_speed = speed;
 
             // Open the new file and get its metadata
@@ -508,6 +418,7 @@ impl AudioStream {
 
         // Find the current speed version
         if let Some(version) = self
+            .song_data
             .speed_versions
             .iter()
             .find(|v| v.speed == current_speed)
@@ -555,7 +466,8 @@ impl AudioStream {
     }
 
     pub fn get_available_speeds(&self) -> Vec<String> {
-        self.speed_versions
+        self.song_data
+            .speed_versions
             .iter()
             .map(|v| format!("{:.2}x", v.speed))
             .collect()
