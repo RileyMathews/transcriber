@@ -1,6 +1,6 @@
 use crate::save_data::SongData;
 
-pub fn process(song_data: SongData, speed: f32) -> Result<(), String> {
+pub fn process(song_data: &SongData, speed: f32) -> Result<(), String> {
     let output_path = song_data.song_dir.join(format!("speed_{:.2}.wav", speed));
 
     if song_data

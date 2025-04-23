@@ -25,7 +25,7 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 struct Cli {
     #[arg(long)]
-    process_speed: Option<f32>,
+    process_speed: Option<Vec<f32>>,
 
     file_path: Option<String>,
 }
@@ -40,17 +40,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let song_data = SongData::from_wave_file(&filename);
-
     match args.process_speed {
         None => (),
         Some(speed) => {
-            println!("Processing speed version: {}", speed);
-            let result = process_time_warp::process(song_data, speed);
-            match result {
-                Ok(()) => println!("Done!"),
-                Err(message) => {
-                    eprintln!("Error processing speed version: {}", message);
+            for speed in speed {
+                let updated_song_data = SongData::from_wave_file(&filename);
+                println!("Processing speed version: {}", speed);
+                let result = process_time_warp::process(&updated_song_data, speed);
+                match result {
+                    Ok(()) => println!("Done!"),
+                    Err(message) => {
+                        eprintln!("Error processing speed version: {}", message);
+                    }
                 }
             }
             return Ok(());
@@ -77,7 +78,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 enum Mode {
     Normal,
     SetBookmark,
-    SetSpeed,
 }
 
 pub struct App {
@@ -133,8 +133,11 @@ impl App {
                 KeyCode::Char('0') => self.stream.lock().unwrap().seek_to_bookmark(Digits::Zero),
                 KeyCode::Char('w') => self.stream.lock().unwrap().set_bookmark(Digits::One),
                 KeyCode::Char('b') => self.mode = Mode::SetBookmark,
-                KeyCode::Char('s') => self.mode = Mode::SetSpeed,
-                _ => {}
+                KeyCode::Char('.') => self.stream.lock().unwrap().set_next_fastest_speed(),
+                KeyCode::Char(',') => self.stream.lock().unwrap().set_next_slowest_speed(),
+                _ => {
+                    dbg!("Unhandled key event: {:?}", key_event);
+                }
             },
             Mode::SetBookmark => match key_event.code {
                 KeyCode::Char('j') => self.stream.lock().unwrap().seek_backwards(5),
@@ -151,51 +154,6 @@ impl App {
                 KeyCode::Char('9') => self.stream.lock().unwrap().set_bookmark(Digits::Nine),
                 KeyCode::Char('0') => self.stream.lock().unwrap().set_bookmark(Digits::Zero),
                 KeyCode::Char('b') => self.mode = Mode::Normal,
-                _ => {}
-            },
-            Mode::SetSpeed => match key_event.code {
-                KeyCode::Char('1') => {
-                    if let Err(e) = self.stream.lock().unwrap().set_speed(1.1) {
-                        eprintln!("Error setting speed: {}", e);
-                    }
-                    self.mode = Mode::Normal;
-                }
-                KeyCode::Char('2') => {
-                    if let Err(e) = self.stream.lock().unwrap().set_speed(1.2) {
-                        eprintln!("Error setting speed: {}", e);
-                    }
-                    self.mode = Mode::Normal;
-                }
-                KeyCode::Char('3') => {
-                    if let Err(e) = self.stream.lock().unwrap().set_speed(1.3) {
-                        eprintln!("Error setting speed: {}", e);
-                    }
-                    self.mode = Mode::Normal;
-                }
-                KeyCode::Char('4') => {
-                    if let Err(e) = self.stream.lock().unwrap().set_speed(1.4) {
-                        eprintln!("Error setting speed: {}", e);
-                    }
-                    self.mode = Mode::Normal;
-                }
-                KeyCode::Char('5') => {
-                    if let Err(e) = self.stream.lock().unwrap().set_speed(1.5) {
-                        eprintln!("Error setting speed: {}", e);
-                    }
-                    self.mode = Mode::Normal;
-                }
-                KeyCode::Char('0') => {
-                    if let Err(e) = self.stream.lock().unwrap().set_speed(1.0) {
-                        eprintln!("Error setting speed: {}", e);
-                    }
-                    self.mode = Mode::Normal;
-                }
-                KeyCode::Char('r') => {
-                    if let Err(e) = self.stream.lock().unwrap().reset_speed() {
-                        eprintln!("Error resetting speed: {}", e);
-                    }
-                }
-                KeyCode::Char('s') => self.mode = Mode::Normal,
                 _ => {}
             },
         }
@@ -245,29 +203,9 @@ impl Widget for &App {
             " Normal Mode ".into(),
             "<b>".blue().bold(),
         ];
-        let speed_instructions = vec![
-            " Set Speed ".into(),
-            "<1>".blue().bold(),
-            " 1.1x ".into(),
-            "<2>".blue().bold(),
-            " 1.2x ".into(),
-            "<3>".blue().bold(),
-            " 1.3x ".into(),
-            "<4>".blue().bold(),
-            " 1.4x ".into(),
-            "<5>".blue().bold(),
-            " 1.5x ".into(),
-            "<0>".blue().bold(),
-            " 1x ".into(),
-            " Reset ".into(),
-            "<r>".blue().bold(),
-            " Normal Mode ".into(),
-            "<s>".blue().bold(),
-        ];
         let mode_instructions = match self.mode {
             Mode::Normal => Line::from(loop_instructions),
             Mode::SetBookmark => Line::from(bookmark_instructions),
-            Mode::SetSpeed => Line::from(speed_instructions),
         };
 
         let block = Block::bordered()
@@ -275,17 +213,28 @@ impl Widget for &App {
             .border_set(border::THICK);
 
         let output_data = self.stream.lock().unwrap().output_data();
-        let available_speeds = self.stream.lock().unwrap().get_available_speeds();
+
+        let next_fastest_output = match output_data.next_fastest_speed {
+            Some(speed) => format!("[>] {}", speed.speed),
+            None => "".to_string(),
+        };
+
+        let next_slowest_output = match output_data.next_slowest_speed {
+            Some(speed) => format!("[<] {}", speed.speed),
+            None => "".to_string(),
+        };
 
         let mode_display = match self.mode {
             Mode::Normal => "Normal".red(),
             Mode::SetBookmark => "Bookmark".red(),
-            Mode::SetSpeed => "Speed".red(),
         };
 
         let counter_text = Text::from(vec![
             Line::from(vec!["Position: ".into(), output_data.current_time.red()]),
-            Line::from(vec!["Speed: ".into(), output_data.current_speed.red()]),
+            Line::from(vec![
+                "Speed: ".into(),
+                output_data.current_speed.speed.to_string().red(),
+            ]),
             Line::from(vec![
                 "loop start: ".into(),
                 output_data.loop_start.red(),
@@ -295,10 +244,6 @@ impl Widget for &App {
                 output_data.is_looping.red(),
             ]),
             Line::from(vec!["Mode: ".into(), mode_display.into()]),
-            Line::from(vec![
-                "Available Speeds: ".into(),
-                available_speeds.join(", ").red(),
-            ]),
             Line::from(vec![
                 "Bookmarks: [1] ".into(),
                 output_data.bookmark_1.red(),
@@ -322,6 +267,7 @@ impl Widget for &App {
                 output_data.bookmark_0.red(),
             ]),
             common_instructions,
+            Line::from(vec![next_slowest_output.into(), next_fastest_output.into()]),
             mode_instructions,
         ]);
 

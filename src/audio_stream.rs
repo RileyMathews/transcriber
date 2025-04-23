@@ -1,6 +1,4 @@
-use crate::save_data::SongData;
-use blake3::Hasher;
-use dirs;
+use crate::save_data::{SongData, SpeedVersion};
 use hound::WavReader;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -27,7 +25,9 @@ pub struct AudioStreamOutputData {
     pub loop_start: String,
     pub loop_end: String,
     pub is_looping: String,
-    pub current_speed: String,
+    pub current_speed: SpeedVersion,
+    pub next_fastest_speed: Option<SpeedVersion>,
+    pub next_slowest_speed: Option<SpeedVersion>,
     pub bookmark_1: String,
     pub bookmark_2: String,
     pub bookmark_3: String,
@@ -112,7 +112,7 @@ pub struct AudioStream {
     loop_sample_end: f32,
     bookmarks: Bookmarks,
     song_data: SongData,
-    current_speed: f32,
+    current_speed: SpeedVersion,
 }
 
 impl AudioStream {
@@ -141,8 +141,13 @@ impl AudioStream {
             loop_sample_start: 0.0,
             loop_sample_end: 0.0,
             bookmarks,
+            current_speed: song_data
+                .speed_versions
+                .iter()
+                .find(|v| v.speed == 1.0)
+                .expect("could not initialize initial speed")
+                .clone(),
             song_data,
-            current_speed: 1.0,
         }
     }
 
@@ -154,6 +159,24 @@ impl AudioStream {
         } else {
             Bookmarks::new()
         }
+    }
+
+    fn get_next_fastest_speed(&self) -> Option<SpeedVersion> {
+        self.song_data
+            .speed_versions
+            .iter()
+            .filter(|v| v.speed > self.current_speed.speed)
+            .min_by(|a, b| a.speed.partial_cmp(&b.speed).unwrap())
+            .cloned()
+    }
+
+    fn get_next_slowest_speed(&self) -> Option<SpeedVersion> {
+        self.song_data
+            .speed_versions
+            .iter()
+            .filter(|v| v.speed < self.current_speed.speed)
+            .max_by(|a, b| a.speed.partial_cmp(&b.speed).unwrap())
+            .cloned()
     }
 
     fn save_bookmarks(&self) {
@@ -189,7 +212,9 @@ impl AudioStream {
             loop_start: format!("{:.2}", loop_start),
             loop_end: format!("{:.2}", loop_end),
             is_looping: format!("{}", is_looping),
-            current_speed: format!("{:.2}x", self.current_speed),
+            current_speed: self.current_speed.clone(),
+            next_fastest_speed: self.get_next_fastest_speed(),
+            next_slowest_speed: self.get_next_slowest_speed(),
             bookmark_1: format!(
                 "{:.2}",
                 self.get_seconds_for_sample_original(self.bookmarks.get_bookmark(Digits::One))
@@ -243,7 +268,7 @@ impl AudioStream {
         let bookmark_sample = self.bookmarks.get_bookmark(bookmark);
         let bookmark_time = self.get_seconds_for_sample_original(bookmark_sample);
         let (byte_position, _) =
-            self.calculate_position_for_time(bookmark_time, self.current_speed);
+            self.calculate_position_for_time(bookmark_time, self.current_speed.speed);
 
         self.file
             .seek(SeekFrom::Start(byte_position))
@@ -293,7 +318,7 @@ impl AudioStream {
     }
 
     fn get_seconds_for_sample(&mut self, sample: f32) -> f32 {
-        (sample as f32 / self.sample_rate as f32) as f32 / self.current_speed
+        (sample as f32 / self.sample_rate as f32) as f32 / self.current_speed.speed
     }
 
     pub fn set_loop_start(&mut self) {
@@ -319,7 +344,7 @@ impl AudioStream {
 
     pub fn seek_forwards(&mut self, seconds: usize) {
         let bytes_to_seek =
-            (self.sample_rate * seconds * self.channels) as f32 * self.current_speed;
+            (self.sample_rate * seconds * self.channels) as f32 * self.current_speed.speed;
         self.file
             .seek(SeekFrom::Current(bytes_to_seek as i64))
             .expect("Could not seek forwards");
@@ -334,7 +359,7 @@ impl AudioStream {
 
     pub fn seek_backwards(&mut self, seconds: usize) {
         let bytes_to_seek =
-            (self.sample_rate * seconds * self.channels) as f32 * self.current_speed;
+            (self.sample_rate * seconds * self.channels) as f32 * self.current_speed.speed;
 
         if self.get_current_byte_location() < bytes_to_seek as usize {
             self.file
@@ -346,6 +371,26 @@ impl AudioStream {
         self.file
             .seek(SeekFrom::Current(-(bytes_to_seek as i64)))
             .expect("Could not seek backwards");
+    }
+
+    pub fn set_next_fastest_speed(&mut self) {
+        match self.get_next_fastest_speed() {
+            Some(speed) => {
+                self.set_speed(speed.speed).unwrap();
+            }
+            None => {}
+        }
+    }
+
+    pub fn set_next_slowest_speed(&mut self) {
+        match self.get_next_slowest_speed() {
+            Some(speed) => {
+                self.set_speed(speed.speed).unwrap();
+            }
+            None => {
+                // No next slowest speed available
+            }
+        }
     }
 
     pub fn set_speed(&mut self, speed: f32) -> Result<(), String> {
@@ -363,7 +408,7 @@ impl AudioStream {
             .iter()
             .find(|v| v.speed == speed)
         {
-            self.current_speed = speed;
+            self.current_speed = version.clone();
 
             // Open the new file and get its metadata
             let file = File::open(&version.file_path).expect("Could not open speed version file");
@@ -409,7 +454,7 @@ impl AudioStream {
 
     pub fn reset_speed(&mut self) -> Result<(), String> {
         // Get the current speed and time
-        let current_speed = self.current_speed;
+        let current_speed = self.current_speed.speed;
         let current_time = self.get_current_time_seconds();
 
         // Pause playback
@@ -459,10 +504,6 @@ impl AudioStream {
         }
 
         Ok(())
-    }
-
-    pub fn get_current_speed(&self) -> f32 {
-        self.current_speed
     }
 
     pub fn get_available_speeds(&self) -> Vec<String> {
