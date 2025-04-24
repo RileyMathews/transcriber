@@ -165,8 +165,8 @@ impl AudioStream {
         self.song_data
             .speed_versions
             .iter()
-            .filter(|v| v.speed > self.current_speed.speed)
-            .min_by(|a, b| a.speed.partial_cmp(&b.speed).unwrap())
+            .filter(|v| v.speed < self.current_speed.speed)
+            .max_by(|a, b| a.speed.partial_cmp(&b.speed).unwrap())
             .cloned()
     }
 
@@ -174,8 +174,8 @@ impl AudioStream {
         self.song_data
             .speed_versions
             .iter()
-            .filter(|v| v.speed < self.current_speed.speed)
-            .max_by(|a, b| a.speed.partial_cmp(&b.speed).unwrap())
+            .filter(|v| v.speed > self.current_speed.speed)
+            .min_by(|a, b| a.speed.partial_cmp(&b.speed).unwrap())
             .cloned()
     }
 
@@ -450,67 +450,5 @@ impl AudioStream {
             "Speed version not available. Please process it first in Process Speed mode."
                 .to_string(),
         )
-    }
-
-    pub fn reset_speed(&mut self) -> Result<(), String> {
-        // Get the current speed and time
-        let current_speed = self.current_speed.speed;
-        let current_time = self.get_current_time_seconds();
-
-        // Pause playback
-        let was_playing = !self.paused;
-        self.paused = true;
-
-        // Find the current speed version
-        if let Some(version) = self
-            .song_data
-            .speed_versions
-            .iter()
-            .find(|v| v.speed == current_speed)
-        {
-            // Open the file and get its metadata
-            let file = File::open(&version.file_path).expect("Could not open speed version file");
-            let file_size = file.metadata().expect("Could not get file metadata").len();
-
-            // Create a new reader
-            let mut reader = BufReader::new(file);
-
-            // Seek past the WAV header
-            reader
-                .seek(SeekFrom::Start(44))
-                .expect("Could not seek past header");
-
-            // Calculate the new position
-            let (byte_position, _) = self.calculate_position_for_time(current_time, current_speed);
-
-            // Verify the position is valid
-            if byte_position >= file_size {
-                return Err("Invalid position after speed reset".to_string());
-            }
-
-            // Seek to the aligned position
-            reader
-                .seek(SeekFrom::Start(byte_position))
-                .expect("Could not seek to position");
-
-            // Read and discard a few frames to ensure clean buffer state
-            let mut buffer = vec![0u8; self.channels * self.bytes_per_sample * 4];
-            reader.read_exact(&mut buffer).ok();
-
-            self.file = reader;
-
-            // Restore playback state
-            self.paused = !was_playing;
-        }
-
-        Ok(())
-    }
-
-    pub fn get_available_speeds(&self) -> Vec<String> {
-        self.song_data
-            .speed_versions
-            .iter()
-            .map(|v| format!("{:.2}x", v.speed))
-            .collect()
     }
 }
