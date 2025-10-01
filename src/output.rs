@@ -30,6 +30,7 @@ pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> PipewireStream {
                 *pw::keys::MEDIA_TYPE => "Audio",
                 *pw::keys::MEDIA_CATEGORY => "Playback",
                 *pw::keys::MEDIA_ROLE => "Music",
+                *pw::keys::NODE_LATENCY => format!("128/{}", sample_rate),
             },
         )
         .expect("Failed to create stream");
