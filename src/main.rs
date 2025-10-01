@@ -1,4 +1,3 @@
-use cpal::traits::StreamTrait;
 use output::output_stream;
 use save_data::SongData;
 use std::io;
@@ -59,9 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let audio_stream = Arc::new(Mutex::new(AudioStream::from_wave_file(&filename)));
-    let stream = output_stream(audio_stream.clone());
-
-    stream.play()?;
+    let _stream = output_stream(audio_stream.clone());
 
     let mut terminal = ratatui::init();
     let app_result = App {

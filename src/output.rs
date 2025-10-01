@@ -1,48 +1,107 @@
-use cpal::Stream;
-use cpal::{
-    StreamConfig,
-    traits::{DeviceTrait, HostTrait},
-};
+use pipewire as pw;
+use pw::{properties::properties, spa};
+use spa::pod::Pod;
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 use crate::audio_stream::AudioStream;
 
-pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> Stream {
-    let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .ok_or("no output device available")
-        .expect("could not obtain output device");
+pub struct PipewireStream {
+    _thread: thread::JoinHandle<()>,
+}
 
-    let config = {
-        let audio_stream_lock = audio_stream.lock().unwrap();
-        StreamConfig {
-            channels: audio_stream_lock.channels as u16,
-            sample_rate: cpal::SampleRate(audio_stream_lock.sample_rate as u32),
-            buffer_size: cpal::BufferSize::Default,
-        }
-    };
+pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> PipewireStream {
+    let thread = thread::spawn(move || {
+        pw::init();
 
-    let channels_usize = config.channels as usize;
+        let mainloop = pw::main_loop::MainLoopRc::new(None).expect("Failed to create mainloop");
+        let context = pw::context::ContextRc::new(&mainloop, None).expect("Failed to create context");
+        let core = context.connect_rc(None).expect("Failed to connect to PipeWire");
 
-    let stream = device
-        .build_output_stream(
-            &config,
-            move |output: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                let mut reader_guard = audio_stream.lock().unwrap();
+        let (sample_rate, channels) = {
+            let audio_stream_lock = audio_stream.lock().unwrap();
+            (audio_stream_lock.sample_rate as u32, audio_stream_lock.channels as u32)
+        };
 
-                for frame in output.chunks_mut(channels_usize) {
-                    let samples = reader_guard.read_frame();
+        let stream = pw::stream::StreamBox::new(
+            &core,
+            "audio-playback",
+            properties! {
+                *pw::keys::MEDIA_TYPE => "Audio",
+                *pw::keys::MEDIA_CATEGORY => "Playback",
+                *pw::keys::MEDIA_ROLE => "Music",
+            },
+        )
+        .expect("Failed to create stream");
 
-                    for (i, sample) in frame.iter_mut().enumerate() {
-                        *sample = samples[i];
+        let channels_usize = channels as usize;
+
+        let _listener = stream
+            .add_local_listener_with_user_data(audio_stream)
+            .process(move |stream, user_data| {
+                if let Some(mut buffer) = stream.dequeue_buffer() {
+                    let datas = buffer.datas_mut();
+                    if let Some(data) = datas.first_mut() {
+                        if let Some(slice) = data.data() {
+                            let mut reader_guard = user_data.lock().unwrap();
+                            let stride = channels_usize * 2;
+                            let n_frames = slice.len() / stride;
+
+                            for i in 0..n_frames {
+                                let samples = reader_guard.read_frame();
+                                for (j, &sample) in samples.iter().enumerate().take(channels_usize) {
+                                    let start = i * stride + (j * 2);
+                                    let end = start + 2;
+                                    if end <= slice.len() {
+                                        slice[start..end].copy_from_slice(&sample.to_le_bytes());
+                                    }
+                                }
+                            }
+
+                            let chunk = data.chunk_mut();
+                            *chunk.offset_mut() = 0;
+                            *chunk.stride_mut() = stride as _;
+                            *chunk.size_mut() = (stride * n_frames) as _;
+                        }
                     }
                 }
-            },
-            |err| eprintln!("error occurred on the output stream: {}", err),
-            None,
-        )
-        .expect("Could not open stream");
+            })
+            .register()
+            .expect("Failed to register listener");
 
-    return stream;
+        let mut audio_info = spa::param::audio::AudioInfoRaw::new();
+        audio_info.set_format(spa::param::audio::AudioFormat::S16LE);
+        audio_info.set_rate(sample_rate);
+        audio_info.set_channels(channels);
+
+        let obj = pw::spa::pod::Object {
+            type_: pw::spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
+            id: pw::spa::param::ParamType::EnumFormat.as_raw(),
+            properties: audio_info.into(),
+        };
+        let values: Vec<u8> = pw::spa::pod::serialize::PodSerializer::serialize(
+            std::io::Cursor::new(Vec::new()),
+            &pw::spa::pod::Value::Object(obj),
+        )
+        .unwrap()
+        .0
+        .into_inner();
+
+        let mut params = [Pod::from_bytes(&values).unwrap()];
+
+        stream
+            .connect(
+                spa::utils::Direction::Output,
+                None,
+                pw::stream::StreamFlags::AUTOCONNECT
+                    | pw::stream::StreamFlags::MAP_BUFFERS
+                    | pw::stream::StreamFlags::RT_PROCESS,
+                &mut params,
+            )
+            .expect("Failed to connect stream");
+
+        mainloop.run();
+    });
+
+    PipewireStream { _thread: thread }
 }
