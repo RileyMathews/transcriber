@@ -44,10 +44,14 @@ pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> PipewireStream {
                     let datas = buffer.datas_mut();
                     if let Some(data) = datas.first_mut() {
                         if let Some(slice) = data.data() {
-                            let mut reader_guard = user_data.lock().unwrap();
                             let stride = channels_usize * 2;
-                            let n_frames = slice.len() / stride;
 
+                            // Only process a quantum's worth of frames per callback
+                            // The buffer may be larger, but we only fill what's needed
+                            let max_frames = slice.len() / stride;
+                            let n_frames = 128.min(max_frames);
+
+                            let mut reader_guard = user_data.lock().unwrap();
                             for i in 0..n_frames {
                                 let samples = reader_guard.read_frame();
                                 for (j, &sample) in samples.iter().enumerate().take(channels_usize) {
@@ -58,6 +62,7 @@ pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> PipewireStream {
                                     }
                                 }
                             }
+                            drop(reader_guard);
 
                             let chunk = data.chunk_mut();
                             *chunk.offset_mut() = 0;
