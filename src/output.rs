@@ -6,6 +6,12 @@ use std::thread;
 
 use crate::audio_stream::AudioStream;
 
+// Quantum size requested from PipeWire - controls how often the callback fires
+// and how many frames we process per callback. Set to 128 for low latency.
+// Note: PipeWire may allocate larger buffers, but we only fill this many frames
+// to keep position updates smooth in the TUI.
+const QUANTUM_SIZE: usize = 128;
+
 pub struct PipewireStream {
     _thread: thread::JoinHandle<()>,
 }
@@ -30,7 +36,7 @@ pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> PipewireStream {
                 *pw::keys::MEDIA_TYPE => "Audio",
                 *pw::keys::MEDIA_CATEGORY => "Playback",
                 *pw::keys::MEDIA_ROLE => "Music",
-                *pw::keys::NODE_LATENCY => format!("128/{}", sample_rate),
+                *pw::keys::NODE_LATENCY => format!("{}/{}", QUANTUM_SIZE, sample_rate),
             },
         )
         .expect("Failed to create stream");
@@ -44,30 +50,33 @@ pub fn output_stream(audio_stream: Arc<Mutex<AudioStream>>) -> PipewireStream {
                     let datas = buffer.datas_mut();
                     if let Some(data) = datas.first_mut() {
                         if let Some(slice) = data.data() {
-                            let stride = channels_usize * 2;
+                            const BYTES_PER_SAMPLE: usize = 2; // i16
+                            let stride = channels_usize * BYTES_PER_SAMPLE;
 
-                            // Only process a quantum's worth of frames per callback
-                            // The buffer may be larger, but we only fill what's needed
-                            let max_frames = slice.len() / stride;
-                            let n_frames = 128.min(max_frames);
+                            // PipeWire provides a large buffer (can be 24k+ frames)
+                            let pipewire_buffer_frames = slice.len() / stride;
+
+                            // We intentionally only fill QUANTUM_SIZE frames per callback
+                            // (not the full buffer) to keep the file position advancing in
+                            // small increments. This makes the TUI position display update
+                            // smoothly instead of jumping in large chunks.
+                            let frames_to_process = QUANTUM_SIZE.min(pipewire_buffer_frames);
 
                             let mut reader_guard = user_data.lock().unwrap();
-                            for i in 0..n_frames {
+                            for i in 0..frames_to_process {
                                 let samples = reader_guard.read_frame();
                                 for (j, &sample) in samples.iter().enumerate().take(channels_usize) {
-                                    let start = i * stride + (j * 2);
-                                    let end = start + 2;
-                                    if end <= slice.len() {
-                                        slice[start..end].copy_from_slice(&sample.to_le_bytes());
-                                    }
+                                    let byte_offset = i * stride + j * BYTES_PER_SAMPLE;
+                                    slice[byte_offset..byte_offset + BYTES_PER_SAMPLE]
+                                        .copy_from_slice(&sample.to_le_bytes());
                                 }
                             }
-                            drop(reader_guard);
 
+                            // Tell PipeWire how much data we actually wrote (not the full buffer)
                             let chunk = data.chunk_mut();
                             *chunk.offset_mut() = 0;
                             *chunk.stride_mut() = stride as _;
-                            *chunk.size_mut() = (stride * n_frames) as _;
+                            *chunk.size_mut() = (stride * frames_to_process) as _;
                         }
                     }
                 }
