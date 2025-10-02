@@ -13,6 +13,7 @@ int main() {
     size_t header_bytes;
     header_bytes = fread(wav_header_buf, 1, 44, file_ptr);
     memcpy(riff_marker, wav_header_buf, 4);
+    // to copy other bytes memcpy(other_var, wav_header_buf + 8, 4); copies bytes 8 - 12
     riff_marker[4] = '\0';
     printf("Value of the first byte: %s (decimal)\n", riff_marker);
     return 0;
